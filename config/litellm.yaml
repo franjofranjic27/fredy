@@ -1,0 +1,28 @@
+model_list:
+  # Claude 4 Sonnet - Best balance of speed and capability
+  - model_name: claude-sonnet
+    litellm_params:
+      model: anthropic/claude-sonnet-4-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # Claude 3.5 Sonnet - Previous generation, still excellent
+  - model_name: claude-3.5-sonnet
+    litellm_params:
+      model: anthropic/claude-3-5-sonnet-20241022
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # Claude 3.5 Haiku - Fast and cost-effective
+  - model_name: claude-haiku
+    litellm_params:
+      model: anthropic/claude-3-5-haiku-20241022
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # Claude 4 Opus - Most capable
+  - model_name: claude-opus
+    litellm_params:
+      model: anthropic/claude-opus-4-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
