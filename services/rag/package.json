@@ -1,0 +1,24 @@
+{
+  "name": "@fredy/rag",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "ingest": "tsx src/index.ts ingest",
+    "sync": "tsx src/index.ts sync",
+    "search": "tsx src/index.ts search"
+  },
+  "dependencies": {
+    "@qdrant/js-client-rest": "^1.9.0",
+    "node-cron": "^3.0.3",
+    "node-html-parser": "^6.1.13",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.15.0",
+    "typescript": "^5.4.5"
+  }
+}

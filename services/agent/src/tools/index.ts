@@ -5,3 +5,5 @@ export {
   getCurrentTimeTool,
   calculatorTool,
 } from "./example-tools.js";
+export { createKnowledgeBaseTool } from "./knowledge-base.js";
+export type { KnowledgeBaseConfig } from "./knowledge-base.js";
