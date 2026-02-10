@@ -47,6 +47,35 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
+  rag:
+    build: ./services/rag
+    container_name: rag
+    restart: unless-stopped
+    depends_on:
+      - qdrant
+    environment:
+      CONFLUENCE_BASE_URL: "${CONFLUENCE_BASE_URL}"
+      CONFLUENCE_USERNAME: "${CONFLUENCE_USERNAME}"
+      CONFLUENCE_API_TOKEN: "${CONFLUENCE_API_TOKEN}"
+      CONFLUENCE_SPACES: "${CONFLUENCE_SPACES}"
+      CONFLUENCE_INCLUDE_LABELS: "${CONFLUENCE_INCLUDE_LABELS:-}"
+      CONFLUENCE_EXCLUDE_LABELS: "${CONFLUENCE_EXCLUDE_LABELS:-ignore,draft,archived}"
+      EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER}"
+      EMBEDDING_API_KEY: "${EMBEDDING_API_KEY}"
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-text-embedding-3-small}"
+      EMBEDDING_DIMENSIONS: "${EMBEDDING_DIMENSIONS:-1536}"
+      QDRANT_URL: "http://qdrant:6333"
+      QDRANT_COLLECTION: "${QDRANT_COLLECTION:-confluence-pages}"
+      QDRANT_API_KEY: "${QDRANT_API_KEY:-}"
+      SYNC_CRON: "${SYNC_CRON:-0 */6 * * *}"
+      SYNC_FULL_ON_START: "${SYNC_FULL_ON_START:-false}"
+      CHUNK_MAX_TOKENS: "${CHUNK_MAX_TOKENS:-800}"
+      CHUNK_OVERLAP_TOKENS: "${CHUNK_OVERLAP_TOKENS:-100}"
+      LOCAL_FILES_ENABLED: "${LOCAL_FILES_ENABLED:-false}"
+      LOCAL_FILES_EXTENSIONS: "${LOCAL_FILES_EXTENSIONS:-.md,.txt,.html}"
+    volumes:
+      - ./data/rag-files:/data/files:ro
+
 #  postgres:
 #    image: pgvector/pgvector:pg17
 #    container_name: pgvector

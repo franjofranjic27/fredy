@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const ConfigSchema = z.object({
-  // Confluence settings
+  // Confluence settings (optional — can run with only local files)
   confluence: z.object({
     baseUrl: z.string().url(),
     username: z.string(),
@@ -9,7 +9,7 @@ const ConfigSchema = z.object({
     spaces: z.array(z.string()).min(1),
     includeLabels: z.array(z.string()).optional(),
     excludeLabels: z.array(z.string()).default(["ignore", "draft", "archived"]),
-  }),
+  }).optional(),
 
   // Embedding settings
   embedding: z.object({
@@ -39,24 +39,36 @@ const ConfigSchema = z.object({
     cronSchedule: z.string().default("0 */6 * * *"), // Every 6 hours
     fullSyncOnStart: z.boolean().default(false),
   }),
+
+  // Local file ingestion settings
+  localFiles: z.object({
+    enabled: z.boolean().default(false),
+    directory: z.string().default("/data/files"),
+    extensions: z.array(z.string()).default([".md", ".txt", ".html"]),
+  }),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
 
 export function loadConfig(): Config {
+  // Only build confluence config when the base URL is set
+  const confluenceConfig = process.env.CONFLUENCE_BASE_URL
+    ? {
+        baseUrl: process.env.CONFLUENCE_BASE_URL,
+        username: process.env.CONFLUENCE_USERNAME,
+        apiToken: process.env.CONFLUENCE_API_TOKEN,
+        spaces: process.env.CONFLUENCE_SPACES?.split(",") ?? [],
+        includeLabels: process.env.CONFLUENCE_INCLUDE_LABELS?.split(",").filter(Boolean),
+        excludeLabels: process.env.CONFLUENCE_EXCLUDE_LABELS?.split(",").filter(Boolean) ?? [
+          "ignore",
+          "draft",
+          "archived",
+        ],
+      }
+    : undefined;
+
   return ConfigSchema.parse({
-    confluence: {
-      baseUrl: process.env.CONFLUENCE_BASE_URL,
-      username: process.env.CONFLUENCE_USERNAME,
-      apiToken: process.env.CONFLUENCE_API_TOKEN,
-      spaces: process.env.CONFLUENCE_SPACES?.split(",") ?? [],
-      includeLabels: process.env.CONFLUENCE_INCLUDE_LABELS?.split(",").filter(Boolean),
-      excludeLabels: process.env.CONFLUENCE_EXCLUDE_LABELS?.split(",").filter(Boolean) ?? [
-        "ignore",
-        "draft",
-        "archived",
-      ],
-    },
+    confluence: confluenceConfig,
     embedding: {
       provider: process.env.EMBEDDING_PROVIDER as "openai" | "voyage" | "cohere",
       apiKey: process.env.EMBEDDING_API_KEY,
@@ -77,6 +89,15 @@ export function loadConfig(): Config {
     sync: {
       cronSchedule: process.env.SYNC_CRON ?? "0 */6 * * *",
       fullSyncOnStart: process.env.SYNC_FULL_ON_START === "true",
+    },
+    localFiles: {
+      enabled: process.env.LOCAL_FILES_ENABLED === "true",
+      directory: process.env.LOCAL_FILES_DIRECTORY ?? "/data/files",
+      extensions: process.env.LOCAL_FILES_EXTENSIONS?.split(",").filter(Boolean) ?? [
+        ".md",
+        ".txt",
+        ".html",
+      ],
     },
   });
 }

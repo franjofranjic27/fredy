@@ -33,3 +33,7 @@ logs/
 # Build artifacts
 out/
 build/
+
+# RAG local files (keep placeholder)
+data/rag-files/*
+!data/rag-files/.gitkeep
