@@ -6,8 +6,10 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx --env-file=../../.env watch src/index.ts",
+    "dev:server": "tsx --env-file=../../.env watch src/server.ts",
     "build": "tsc",
     "start": "node --env-file=../../.env dist/index.js",
+    "start:server": "node --env-file=../../.env dist/server.js",
     "test": "vitest",
     "mcp-server": "tsx --env-file=../../.env src/mcp-server/index.ts"
   },
@@ -22,7 +24,9 @@
   "packageManager": "pnpm@10.28.2",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.72.1",
+    "@hono/node-server": "^1.13.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "hono": "^4.7.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

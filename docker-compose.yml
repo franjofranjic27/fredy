@@ -76,6 +76,23 @@ services:
     volumes:
       - ./data/rag-files:/data/files:ro
 
+  agent:
+    build: ./services/agent
+    container_name: fredy-agent
+    restart: unless-stopped
+    depends_on:
+      - qdrant
+    ports:
+      - "8001:8001"
+    environment:
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER}"
+      EMBEDDING_API_KEY: "${EMBEDDING_API_KEY}"
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-text-embedding-3-small}"
+      QDRANT_URL: "http://qdrant:6333"
+      QDRANT_COLLECTION: "${QDRANT_COLLECTION:-confluence-pages}"
+      PORT: "8001"
+
 #  postgres:
 #    image: pgvector/pgvector:pg17
 #    container_name: pgvector
