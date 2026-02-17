@@ -1,4 +1,4 @@
-import { zodToJsonSchema } from "zod-to-json-schema";
+import { toJSONSchema } from "zod";
 import type { AnyTool, Tool } from "./types.js";
 import type { ToolDefinition } from "../llm/types.js";
 
@@ -32,8 +32,7 @@ export class ToolRegistry {
     return Array.from(this.tools.values()).map((tool) => ({
       name: tool.name,
       description: tool.description,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      inputSchema: zodToJsonSchema(tool.inputSchema as any) as Record<string, unknown>,
+      inputSchema: toJSONSchema(tool.inputSchema) as Record<string, unknown>,
     }));
   }
 

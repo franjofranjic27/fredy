@@ -4,10 +4,10 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "dev": "tsx src/index.ts",
-    "ingest": "tsx src/index.ts ingest",
-    "sync": "tsx src/index.ts sync",
-    "search": "tsx src/index.ts search"
+    "dev": "tsx --env-file=../../.env src/index.ts",
+    "ingest": "tsx --env-file=../../.env src/index.ts ingest",
+    "sync": "tsx --env-file=../../.env src/index.ts sync",
+    "search": "tsx --env-file=../../.env src/index.ts search"
   },
   "dependencies": {
     "@qdrant/js-client-rest": "^1.9.0",
