@@ -46,9 +46,7 @@ app.post("/v1/chat/completions", async (c) => {
 
   const { messages, stream } = parsed.data;
 
-  // Extract last user message
-  const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
-  if (!lastUserMessage) {
+  if (!messages.some((m) => m.role === "user")) {
     return c.json(
       { error: { message: "No user message found" } },
       400
@@ -56,13 +54,13 @@ app.post("/v1/chat/completions", async (c) => {
   }
 
   if (!stream) {
-    const result = await runAgent(config, lastUserMessage.content);
+    const result = await runAgent(config, messages);
     return c.json(createCompletionResponse(result.response, MODEL_ID));
   }
 
   // Streaming: run agent to completion, then send chunks
   return streamSSE(c, async (sseStream) => {
-    const result = await runAgent(config, lastUserMessage.content);
+    const result = await runAgent(config, messages);
     const id = `chatcmpl-${crypto.randomUUID()}`;
     const text = result.response;
 

@@ -15,7 +15,7 @@ async function main() {
   console.log("");
 
   try {
-    const result = await runAgent(config, userMessage);
+    const result = await runAgent(config, [{ role: "user" as const, content: userMessage }]);
 
     console.log("=== Agent Response ===");
     console.log(result.response);

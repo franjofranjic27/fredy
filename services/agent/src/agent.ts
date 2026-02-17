@@ -17,14 +17,14 @@ export interface AgentResult {
 
 export async function runAgent(
   config: AgentConfig,
-  userMessage: string
+  inputMessages: Message[]
 ): Promise<AgentResult> {
   const { llm, tools, systemPrompt, maxIterations = 10, verbose = false } = config;
   const toolsUsed: AgentResult["toolsUsed"] = [];
 
   const messages: Message[] = [
     { role: "system", content: systemPrompt },
-    { role: "user", content: userMessage },
+    ...inputMessages.filter((m) => m.role !== "system"),
   ];
 
   const log = verbose ? console.log : () => {};
