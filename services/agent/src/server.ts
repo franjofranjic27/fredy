@@ -111,7 +111,7 @@ export function createApp(config: AgentConfig): Hono {
       try {
         const result = await runAgent(config, messages, session.messages);
         updateSession(result.response);
-        return c.json(createCompletionResponse(result.response, MODEL_ID));
+        return c.json(createCompletionResponse(result.response, MODEL_ID, result.usage));
       } catch (error) {
         if (error instanceof AgentError) {
           return c.json(

@@ -3,6 +3,11 @@ export interface Message {
   content: string;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -25,6 +30,7 @@ export interface LLMResponse {
   content: string | null;
   toolCalls: ToolCall[];
   stopReason: "end_turn" | "tool_use" | "max_tokens";
+  usage?: TokenUsage;
 }
 
 export interface LLMClient {

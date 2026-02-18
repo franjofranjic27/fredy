@@ -66,12 +66,21 @@ describe("createCompletionResponse", () => {
     expect(r1.id).toMatch(/^chatcmpl-/);
   });
 
-  it("includes zero usage fields", () => {
+  it("includes zero usage when none provided", () => {
     const response = createCompletionResponse("Hi", "model");
     expect(response.usage).toEqual({
       prompt_tokens: 0,
       completion_tokens: 0,
       total_tokens: 0,
+    });
+  });
+
+  it("maps token usage to OpenAI format", () => {
+    const response = createCompletionResponse("Hi", "model", { inputTokens: 100, outputTokens: 50 });
+    expect(response.usage).toEqual({
+      prompt_tokens: 100,
+      completion_tokens: 50,
+      total_tokens: 150,
     });
   });
 });

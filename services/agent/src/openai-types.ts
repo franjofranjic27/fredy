@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { TokenUsage } from "./llm/types.js";
 
 const MessageSchema = z.object({
   role: z.enum(["system", "user", "assistant"]),
@@ -17,7 +18,8 @@ export type ChatCompletionRequest = z.infer<typeof ChatCompletionRequestSchema>;
 
 export function createCompletionResponse(
   content: string,
-  model: string
+  model: string,
+  usage?: TokenUsage
 ) {
   return {
     id: `chatcmpl-${crypto.randomUUID()}`,
@@ -31,7 +33,11 @@ export function createCompletionResponse(
         finish_reason: "stop" as const,
       },
     ],
-    usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    usage: {
+      prompt_tokens: usage?.inputTokens ?? 0,
+      completion_tokens: usage?.outputTokens ?? 0,
+      total_tokens: (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0),
+    },
   };
 }
 

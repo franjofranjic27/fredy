@@ -65,6 +65,10 @@ export function createClaudeClient(options: ClaudeClientOptions): LLMClient {
             t.type === "tool_use" ? (t.input as Record<string, unknown>) : {},
         })),
         stopReason: response.stop_reason === "tool_use" ? "tool_use" : "end_turn",
+        usage: {
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+        },
       };
     },
   };

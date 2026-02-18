@@ -62,6 +62,36 @@ describe("runAgent", () => {
     expect(result.iterations).toBe(2);
   });
 
+  it("accumulates token usage across iterations", async () => {
+    const registry = new ToolRegistry().register({
+      name: "ping",
+      description: "Pings",
+      inputSchema: z.object({}),
+      execute: async () => "pong",
+    });
+
+    const config = makeConfig(
+      [
+        {
+          content: null,
+          toolCalls: [{ id: "call-1", name: "ping", arguments: {} }],
+          stopReason: "tool_use",
+          usage: { inputTokens: 100, outputTokens: 20 },
+        },
+        {
+          content: "Done!",
+          toolCalls: [],
+          stopReason: "end_turn",
+          usage: { inputTokens: 200, outputTokens: 40 },
+        },
+      ],
+      registry
+    );
+
+    const result = await runAgent(config, [{ role: "user", content: "Go" }]);
+    expect(result.usage).toEqual({ inputTokens: 300, outputTokens: 60 });
+  });
+
   it("throws on max iterations", async () => {
     const registry = new ToolRegistry().register({
       name: "loop",

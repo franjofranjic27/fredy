@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { LLMClient, Message, ToolResult } from "./llm/types.js";
+import type { LLMClient, Message, ToolResult, TokenUsage } from "./llm/types.js";
 import type { ToolRegistry } from "./tools/registry.js";
 
 export type AgentErrorCode =
@@ -32,6 +32,7 @@ export interface AgentResult {
   response: string;
   toolsUsed: Array<{ name: string; input: unknown; output: unknown }>;
   iterations: number;
+  usage: TokenUsage;
 }
 
 export async function runAgent(
@@ -41,6 +42,7 @@ export async function runAgent(
 ): Promise<AgentResult> {
   const { llm, tools, systemPrompt, maxIterations = 10, verbose = false } = config;
   const toolsUsed: AgentResult["toolsUsed"] = [];
+  const totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 
   const messages: Message[] = [
     { role: "system", content: systemPrompt },
@@ -68,6 +70,11 @@ export async function runAgent(
       throw new AgentError("UNKNOWN", String(error), error);
     }
 
+    if (response.usage) {
+      totalUsage.inputTokens += response.usage.inputTokens;
+      totalUsage.outputTokens += response.usage.outputTokens;
+    }
+
     log(`Stop reason: ${response.stopReason}`);
     if (response.content) {
       log(`Content: ${response.content.slice(0, 100)}...`);
@@ -79,6 +86,7 @@ export async function runAgent(
         response: response.content ?? "",
         toolsUsed,
         iterations: iteration + 1,
+        usage: totalUsage,
       };
     }
 

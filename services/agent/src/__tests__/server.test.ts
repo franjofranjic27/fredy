@@ -64,6 +64,23 @@ describe("POST /v1/chat/completions", () => {
     expect(res.status).toBe(400);
   });
 
+  it("forwards token usage to response body", async () => {
+    const app = makeApp([{
+      content: "Hello!",
+      toolCalls: [],
+      stopReason: "end_turn",
+      usage: { inputTokens: 150, outputTokens: 75 },
+    }]);
+    const res = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "test", messages: [{ role: "user", content: "Hi" }] }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.usage).toEqual({ prompt_tokens: 150, completion_tokens: 75, total_tokens: 225 });
+  });
+
   it("returns completion for valid request", async () => {
     const app = makeApp([
       {
