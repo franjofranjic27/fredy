@@ -21,7 +21,6 @@ interface SessionEntry {
 }
 
 const MODEL_ID = "fredy-it-agent";
-const CHUNK_SIZE = 20;
 
 export function createApp(config: AgentConfig): Hono {
   const app = new Hono();
@@ -146,32 +145,43 @@ export function createApp(config: AgentConfig): Hono {
       }
     }
 
-    // Streaming: run agent to completion, then send chunks
+    // Streaming: forward token deltas as they arrive from the LLM
+    const id = `chatcmpl-${crypto.randomUUID()}`;
     return streamSSE(c, async (sseStream) => {
-      const result = await runAgent(config, messages, session.messages);
-      updateSession(result.response);
-      logger.info("agent run complete", {
-        session_id: sessionId,
-        iterations: result.iterations,
-        tools_used: result.toolsUsed.length,
-        input_tokens: result.usage.inputTokens,
-        output_tokens: result.usage.outputTokens,
-        stream: true,
-      });
-      const id = `chatcmpl-${crypto.randomUUID()}`;
-      const text = result.response;
-
-      // Send role chunk
+      // Send role chunk so the client knows a message is starting
       await sseStream.writeSSE({
         data: JSON.stringify(createCompletionChunk(id, "", null, MODEL_ID)),
       });
 
-      // Send content in small chunks
-      for (let i = 0; i < text.length; i += CHUNK_SIZE) {
-        const slice = text.slice(i, i + CHUNK_SIZE);
-        await sseStream.writeSSE({
-          data: JSON.stringify(createCompletionChunk(id, slice, null, MODEL_ID)),
+      try {
+        const result = await runAgent(
+          config,
+          messages,
+          session.messages,
+          async (delta) => {
+            await sseStream.writeSSE({
+              data: JSON.stringify(createCompletionChunk(id, delta, null, MODEL_ID)),
+            });
+          },
+        );
+
+        updateSession(result.response);
+        logger.info("agent run complete", {
+          session_id: sessionId,
+          iterations: result.iterations,
+          tools_used: result.toolsUsed.length,
+          input_tokens: result.usage.inputTokens,
+          output_tokens: result.usage.outputTokens,
+          stream: true,
         });
+      } catch (error) {
+        if (error instanceof AgentError) {
+          logger.error("agent run failed", { session_id: sessionId, code: error.code, message: error.message, stream: true });
+        } else {
+          logger.error("unexpected streaming error", { session_id: sessionId, error: String(error) });
+        }
+        // Stream is aborted — client sees connection closed
+        return;
       }
 
       // Send finish chunk

@@ -3,7 +3,6 @@ import type {
   LLMClient,
   Message,
   ToolDefinition,
-  ToolResult,
   LLMResponse,
 } from "./types.js";
 
@@ -34,35 +33,57 @@ export function createClaudeClient(options: ClaudeClientOptions): LLMClient {
     async chat(
       messages: Message[],
       tools?: ToolDefinition[],
-      toolResults?: ToolResult[]
+      onDelta?: (delta: string) => Promise<void> | void,
     ): Promise<LLMResponse> {
       const systemMessage = messages.find((m) => m.role === "system");
-      const chatMessages = buildMessages(messages, toolResults);
+      const chatMessages = buildMessages(messages);
 
-      const response = await client.messages.create({
-        model,
-        max_tokens: maxTokens,
-        system: systemMessage?.content,
-        messages: chatMessages,
-        tools: tools?.map((t) => ({
-          name: t.name,
-          description: t.description,
-          input_schema: t.inputSchema as Anthropic.Tool["input_schema"],
-        })),
-      });
+      const toolParams = tools?.map((t) => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.inputSchema as Anthropic.Tool["input_schema"],
+      }));
+
+      let response: Anthropic.Message;
+
+      if (onDelta) {
+        const stream = client.messages.stream({
+          model,
+          max_tokens: maxTokens,
+          system: systemMessage?.content,
+          messages: chatMessages,
+          tools: toolParams,
+        });
+
+        for await (const event of stream) {
+          if (
+            event.type === "content_block_delta" &&
+            event.delta.type === "text_delta"
+          ) {
+            await onDelta(event.delta.text);
+          }
+        }
+
+        response = await stream.finalMessage();
+      } else {
+        response = await client.messages.create({
+          model,
+          max_tokens: maxTokens,
+          system: systemMessage?.content,
+          messages: chatMessages,
+          tools: toolParams,
+        });
+      }
 
       const textContent = response.content.find((c) => c.type === "text");
-      const toolUseBlocks = response.content.filter(
-        (c) => c.type === "tool_use"
-      );
+      const toolUseBlocks = response.content.filter((c) => c.type === "tool_use");
 
       return {
         content: textContent?.type === "text" ? textContent.text : null,
         toolCalls: toolUseBlocks.map((t) => ({
           id: t.type === "tool_use" ? t.id : "",
           name: t.type === "tool_use" ? t.name : "",
-          arguments:
-            t.type === "tool_use" ? (t.input as Record<string, unknown>) : {},
+          arguments: t.type === "tool_use" ? (t.input as Record<string, unknown>) : {},
         })),
         stopReason: response.stop_reason === "tool_use" ? "tool_use" : "end_turn",
         usage: {
@@ -74,10 +95,7 @@ export function createClaudeClient(options: ClaudeClientOptions): LLMClient {
   };
 }
 
-function buildMessages(
-  messages: Message[],
-  toolResults?: ToolResult[]
-): Anthropic.MessageParam[] {
+function buildMessages(messages: Message[]): Anthropic.MessageParam[] {
   const result: Anthropic.MessageParam[] = [];
 
   for (const msg of messages) {
@@ -86,19 +104,6 @@ function buildMessages(
     result.push({
       role: msg.role as "user" | "assistant",
       content: msg.content,
-    });
-  }
-
-  // Append tool results if provided
-  if (toolResults && toolResults.length > 0) {
-    result.push({
-      role: "user",
-      content: toolResults.map((tr) => ({
-        type: "tool_result" as const,
-        tool_use_id: tr.toolCallId,
-        content: tr.content,
-        is_error: tr.isError,
-      })),
     });
   }
 

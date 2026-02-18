@@ -92,6 +92,44 @@ describe("runAgent", () => {
     expect(result.usage).toEqual({ inputTokens: 300, outputTokens: 60 });
   });
 
+  it("calls onToken with text deltas from the final response", async () => {
+    const config = makeConfig([{ content: "Hello streaming!", toolCalls: [], stopReason: "end_turn" }]);
+
+    const tokens: string[] = [];
+    const result = await runAgent(
+      config,
+      [{ role: "user", content: "Hi" }],
+      [],
+      (delta) => { tokens.push(delta); },
+    );
+
+    expect(result.response).toBe("Hello streaming!");
+    expect(tokens).toEqual(["Hello streaming!"]);
+  });
+
+  it("only calls onToken for iterations that produce text content", async () => {
+    const registry = new ToolRegistry().register({
+      name: "ping",
+      description: "Pings",
+      inputSchema: z.object({}),
+      execute: async () => "pong",
+    });
+
+    const config = makeConfig(
+      [
+        { content: null, toolCalls: [{ id: "c1", name: "ping", arguments: {} }], stopReason: "tool_use" },
+        { content: "Done!", toolCalls: [], stopReason: "end_turn" },
+      ],
+      registry,
+    );
+
+    const tokens: string[] = [];
+    await runAgent(config, [{ role: "user", content: "Go" }], [], (delta) => { tokens.push(delta); });
+
+    // tool-use iteration has null content → no delta; final iteration → one delta
+    expect(tokens).toEqual(["Done!"]);
+  });
+
   it("throws on max iterations", async () => {
     const registry = new ToolRegistry().register({
       name: "loop",

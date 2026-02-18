@@ -37,6 +37,6 @@ export interface LLMClient {
   chat(
     messages: Message[],
     tools?: ToolDefinition[],
-    toolResults?: ToolResult[]
+    onDelta?: (delta: string) => Promise<void> | void,
   ): Promise<LLMResponse>;
 }

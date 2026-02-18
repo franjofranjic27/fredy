@@ -41,7 +41,8 @@ export interface AgentResult {
 export async function runAgent(
   config: AgentConfig,
   inputMessages: Message[],
-  previousMessages: Message[] = []
+  previousMessages: Message[] = [],
+  onToken?: (delta: string) => Promise<void> | void,
 ): Promise<AgentResult> {
   const { llm, tools, systemPrompt, maxIterations = 10, verbose = false } = config;
   const toolsUsed: AgentResult["toolsUsed"] = [];
@@ -59,7 +60,7 @@ export async function runAgent(
 
     let response;
     try {
-      response = await llm.chat(messages, tools.toDefinitions());
+      response = await llm.chat(messages, tools.toDefinitions(), onToken);
     } catch (error) {
       if (error instanceof Anthropic.APIError) {
         if (error.status === 429) {
