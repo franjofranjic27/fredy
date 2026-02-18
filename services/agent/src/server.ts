@@ -10,6 +10,14 @@ import {
 } from "./openai-types.js";
 import { AgentError } from "./agent.js";
 import type { AgentConfig } from "./agent.js";
+import type { Message } from "./llm/types.js";
+
+const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+interface SessionEntry {
+  messages: Message[];
+  lastActivity: number;
+}
 
 const MODEL_ID = "fredy-it-agent";
 const CHUNK_SIZE = 20;
@@ -17,6 +25,17 @@ const CHUNK_SIZE = 20;
 export function createApp(config: AgentConfig): Hono {
   const app = new Hono();
   const AGENT_API_KEY = process.env.AGENT_API_KEY;
+
+  const sessions = new Map<string, SessionEntry>();
+  const cleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [id, entry] of sessions) {
+      if (now - entry.lastActivity > SESSION_TTL_MS) {
+        sessions.delete(id);
+      }
+    }
+  }, SESSION_TTL_MS);
+  cleanupInterval.unref();
 
   app.use("*", async (c, next) => {
     if (c.req.path === "/health") return next();   // health stays open
@@ -65,6 +84,21 @@ export function createApp(config: AgentConfig): Hono {
       );
     }
 
+    const sessionId = c.req.header("x-session-id") ?? crypto.randomUUID();
+    const session = sessions.get(sessionId) ?? { messages: [], lastActivity: Date.now() };
+    const lastUserContent = messages.filter((m) => m.role === "user").at(-1)?.content ?? "";
+
+    c.header("x-session-id", sessionId);
+
+    const updateSession = (assistantResponse: string) => {
+      session.messages.push(
+        { role: "user", content: lastUserContent },
+        { role: "assistant", content: assistantResponse }
+      );
+      session.lastActivity = Date.now();
+      sessions.set(sessionId, session);
+    };
+
     const statusMap: Record<string, number> = {
       RATE_LIMITED: 429,
       API_ERROR: 502,
@@ -75,7 +109,8 @@ export function createApp(config: AgentConfig): Hono {
 
     if (!stream) {
       try {
-        const result = await runAgent(config, messages);
+        const result = await runAgent(config, messages, session.messages);
+        updateSession(result.response);
         return c.json(createCompletionResponse(result.response, MODEL_ID));
       } catch (error) {
         if (error instanceof AgentError) {
@@ -90,7 +125,8 @@ export function createApp(config: AgentConfig): Hono {
 
     // Streaming: run agent to completion, then send chunks
     return streamSSE(c, async (sseStream) => {
-      const result = await runAgent(config, messages);
+      const result = await runAgent(config, messages, session.messages);
+      updateSession(result.response);
       const id = `chatcmpl-${crypto.randomUUID()}`;
       const text = result.response;
 
