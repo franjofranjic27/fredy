@@ -15,6 +15,18 @@ const CHUNK_SIZE = 20;
 
 export function createApp(config: AgentConfig): Hono {
   const app = new Hono();
+  const AGENT_API_KEY = process.env.AGENT_API_KEY;
+
+  app.use("*", async (c, next) => {
+    if (c.req.path === "/health") return next();   // health stays open
+    if (!AGENT_API_KEY) return next();             // no key → dev mode
+    const auth = c.req.header("authorization") ?? "";
+    const [scheme, token] = auth.split(" ");
+    if (scheme?.toLowerCase() !== "bearer" || token !== AGENT_API_KEY) {
+      return c.json({ error: { message: "Invalid API key" } }, 401);
+    }
+    return next();
+  });
 
   app.get("/health", (c) => c.json({ status: "ok" }));
 
