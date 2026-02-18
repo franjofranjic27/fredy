@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
-import { runAgent } from "../agent.js";
+import { runAgent, AgentError } from "../agent.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { createMockLLMClient } from "./helpers/mock-llm.js";
 import type { LLMResponse } from "../llm/types.js";
@@ -78,8 +78,8 @@ describe("runAgent", () => {
 
     const config = { ...makeConfig(responses, registry), maxIterations: 2 };
 
-    await expect(
-      runAgent(config, [{ role: "user", content: "Go" }])
-    ).rejects.toThrow(/max iterations/i);
+    const error = await runAgent(config, [{ role: "user", content: "Go" }]).catch((e) => e);
+    expect(error).toBeInstanceOf(AgentError);
+    expect((error as AgentError).code).toBe("MAX_ITERATIONS");
   });
 });

@@ -8,6 +8,7 @@ import {
   createCompletionResponse,
   createCompletionChunk,
 } from "./openai-types.js";
+import { AgentError } from "./agent.js";
 import type { AgentConfig } from "./agent.js";
 
 const MODEL_ID = "fredy-it-agent";
@@ -64,9 +65,27 @@ export function createApp(config: AgentConfig): Hono {
       );
     }
 
+    const statusMap: Record<string, number> = {
+      RATE_LIMITED: 429,
+      API_ERROR: 502,
+      MAX_ITERATIONS: 500,
+      TOOL_ERROR: 500,
+      UNKNOWN: 500,
+    };
+
     if (!stream) {
-      const result = await runAgent(config, messages);
-      return c.json(createCompletionResponse(result.response, MODEL_ID));
+      try {
+        const result = await runAgent(config, messages);
+        return c.json(createCompletionResponse(result.response, MODEL_ID));
+      } catch (error) {
+        if (error instanceof AgentError) {
+          return c.json(
+            { error: { message: error.message, code: error.code } },
+            statusMap[error.code] as 429 | 500 | 502
+          );
+        }
+        return c.json({ error: { message: "Internal server error" } }, 500);
+      }
     }
 
     // Streaming: run agent to completion, then send chunks

@@ -11,6 +11,8 @@ export interface ClaudeClientOptions {
   apiKey: string;
   model?: string;
   maxTokens?: number;
+  maxRetries?: number;
+  timeoutMs?: number;
 }
 
 export function createClaudeClient(options: ClaudeClientOptions): LLMClient {
@@ -18,9 +20,15 @@ export function createClaudeClient(options: ClaudeClientOptions): LLMClient {
     apiKey,
     model = "claude-sonnet-4-20250514",
     maxTokens = 4096,
+    maxRetries,
+    timeoutMs,
   } = options;
 
-  const client = new Anthropic({ apiKey });
+  const client = new Anthropic({
+    apiKey,
+    maxRetries: maxRetries ?? 3,
+    timeout: timeoutMs ?? 120_000,
+  });
 
   return {
     async chat(

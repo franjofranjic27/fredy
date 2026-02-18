@@ -1,5 +1,24 @@
+import Anthropic from "@anthropic-ai/sdk";
 import type { LLMClient, Message, ToolResult } from "./llm/types.js";
 import type { ToolRegistry } from "./tools/registry.js";
+
+export type AgentErrorCode =
+  | "RATE_LIMITED"
+  | "API_ERROR"
+  | "MAX_ITERATIONS"
+  | "TOOL_ERROR"
+  | "UNKNOWN";
+
+export class AgentError extends Error {
+  constructor(
+    public readonly code: AgentErrorCode,
+    message: string,
+    public readonly cause?: unknown
+  ) {
+    super(message);
+    this.name = "AgentError";
+  }
+}
 
 export interface AgentConfig {
   llm: LLMClient;
@@ -32,7 +51,20 @@ export async function runAgent(
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     log(`\n--- Iteration ${iteration + 1} ---`);
 
-    const response = await llm.chat(messages, tools.toDefinitions());
+    let response;
+    try {
+      response = await llm.chat(messages, tools.toDefinitions());
+    } catch (error) {
+      if (error instanceof Anthropic.APIError) {
+        if (error.status === 429) {
+          throw new AgentError("RATE_LIMITED", "Rate limit exceeded", error);
+        }
+        if (error.status >= 500) {
+          throw new AgentError("API_ERROR", `Anthropic API error: ${error.status}`, error);
+        }
+      }
+      throw new AgentError("UNKNOWN", String(error), error);
+    }
 
     log(`Stop reason: ${response.stopReason}`);
     if (response.content) {
@@ -98,5 +130,5 @@ export async function runAgent(
     });
   }
 
-  throw new Error(`Agent exceeded max iterations (${maxIterations})`);
+  throw new AgentError("MAX_ITERATIONS", `Agent exceeded max iterations (${maxIterations})`);
 }

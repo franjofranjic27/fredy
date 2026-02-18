@@ -18,14 +18,19 @@ export class ToolRegistry {
     return this.tools.has(name);
   }
 
-  async execute(name: string, args: unknown): Promise<unknown> {
+  async execute(name: string, args: unknown, timeoutMs = 30_000): Promise<unknown> {
     const tool = this.tools.get(name);
     if (!tool) {
       throw new Error(`Tool not found: ${name}`);
     }
 
     const parsed = tool.inputSchema.parse(args);
-    return tool.execute(parsed);
+    return Promise.race([
+      tool.execute(parsed),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Tool "${name}" timed out after ${timeoutMs}ms`)), timeoutMs)
+      ),
+    ]);
   }
 
   toDefinitions(): ToolDefinition[] {
