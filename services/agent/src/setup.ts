@@ -7,6 +7,7 @@ import {
   createKnowledgeBaseTool,
 } from "./tools/index.js";
 import type { AgentConfig } from "./agent.js";
+import { createLogger } from "./logger.js";
 
 export const SYSTEM_PROMPT = `You are Fredy, an IT Operations assistant.
 
@@ -57,10 +58,13 @@ export function createAgentConfig(
     tools.register(kbTool);
   }
 
+  const verbose = overrides.verbose ?? process.env.VERBOSE === "true";
+
   return {
     llm,
     tools,
     systemPrompt: SYSTEM_PROMPT,
-    verbose: overrides.verbose ?? process.env.VERBOSE === "true",
+    verbose,
+    logger: createLogger({ level: verbose ? "debug" : "info" }),
   };
 }

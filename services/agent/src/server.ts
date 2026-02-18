@@ -11,6 +11,7 @@ import {
 import { AgentError } from "./agent.js";
 import type { AgentConfig } from "./agent.js";
 import type { Message } from "./llm/types.js";
+import { createLogger } from "./logger.js";
 
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -25,6 +26,19 @@ const CHUNK_SIZE = 20;
 export function createApp(config: AgentConfig): Hono {
   const app = new Hono();
   const AGENT_API_KEY = process.env.AGENT_API_KEY;
+  const logger = config.logger ?? createLogger();
+
+  // Request timing — must be first so it wraps everything including auth
+  app.use("*", async (c, next) => {
+    const start = Date.now();
+    await next();
+    logger.info("http request", {
+      method: c.req.method,
+      path: c.req.path,
+      status: c.res.status,
+      duration_ms: Date.now() - start,
+    });
+  });
 
   const sessions = new Map<string, SessionEntry>();
   const cleanupInterval = setInterval(() => {
@@ -111,14 +125,23 @@ export function createApp(config: AgentConfig): Hono {
       try {
         const result = await runAgent(config, messages, session.messages);
         updateSession(result.response);
+        logger.info("agent run complete", {
+          session_id: sessionId,
+          iterations: result.iterations,
+          tools_used: result.toolsUsed.length,
+          input_tokens: result.usage.inputTokens,
+          output_tokens: result.usage.outputTokens,
+        });
         return c.json(createCompletionResponse(result.response, MODEL_ID, result.usage));
       } catch (error) {
         if (error instanceof AgentError) {
+          logger.error("agent run failed", { session_id: sessionId, code: error.code, message: error.message });
           return c.json(
             { error: { message: error.message, code: error.code } },
             statusMap[error.code] as 429 | 500 | 502
           );
         }
+        logger.error("unexpected error", { session_id: sessionId, error: String(error) });
         return c.json({ error: { message: "Internal server error" } }, 500);
       }
     }
@@ -127,6 +150,14 @@ export function createApp(config: AgentConfig): Hono {
     return streamSSE(c, async (sseStream) => {
       const result = await runAgent(config, messages, session.messages);
       updateSession(result.response);
+      logger.info("agent run complete", {
+        session_id: sessionId,
+        iterations: result.iterations,
+        tools_used: result.toolsUsed.length,
+        input_tokens: result.usage.inputTokens,
+        output_tokens: result.usage.outputTokens,
+        stream: true,
+      });
       const id = `chatcmpl-${crypto.randomUUID()}`;
       const text = result.response;
 

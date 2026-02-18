@@ -1,6 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { LLMClient, Message, ToolResult, TokenUsage } from "./llm/types.js";
 import type { ToolRegistry } from "./tools/registry.js";
+import { createLogger } from "./logger.js";
+import type { Logger } from "./logger.js";
 
 export type AgentErrorCode =
   | "RATE_LIMITED"
@@ -26,6 +28,7 @@ export interface AgentConfig {
   systemPrompt: string;
   maxIterations?: number;
   verbose?: boolean;
+  logger?: Logger;
 }
 
 export interface AgentResult {
@@ -43,6 +46,7 @@ export async function runAgent(
   const { llm, tools, systemPrompt, maxIterations = 10, verbose = false } = config;
   const toolsUsed: AgentResult["toolsUsed"] = [];
   const totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
+  const logger = config.logger ?? createLogger({ level: verbose ? "debug" : "warn" });
 
   const messages: Message[] = [
     { role: "system", content: systemPrompt },
@@ -50,10 +54,8 @@ export async function runAgent(
     ...inputMessages.filter((m) => m.role !== "system"),
   ];
 
-  const log = verbose ? console.log : () => {};
-
   for (let iteration = 0; iteration < maxIterations; iteration++) {
-    log(`\n--- Iteration ${iteration + 1} ---`);
+    logger.debug("agent iteration", { iteration: iteration + 1 });
 
     let response;
     try {
@@ -75,10 +77,11 @@ export async function runAgent(
       totalUsage.outputTokens += response.usage.outputTokens;
     }
 
-    log(`Stop reason: ${response.stopReason}`);
-    if (response.content) {
-      log(`Content: ${response.content.slice(0, 100)}...`);
-    }
+    logger.debug("llm response", {
+      stopReason: response.stopReason,
+      ...(response.content ? { preview: response.content.slice(0, 100) } : {}),
+      ...(response.usage ? { inputTokens: response.usage.inputTokens, outputTokens: response.usage.outputTokens } : {}),
+    });
 
     // If no tool calls, return the final response
     if (response.stopReason !== "tool_use" || response.toolCalls.length === 0) {
@@ -98,18 +101,18 @@ export async function runAgent(
     // Process all tool calls in parallel
     const results = await Promise.all(
       response.toolCalls.map(async (toolCall) => {
-        log(`Tool call: ${toolCall.name}(${JSON.stringify(toolCall.arguments)})`);
+        logger.debug("tool call", { tool: toolCall.name, args: toolCall.arguments });
 
         let result: unknown;
         let isError = false;
 
         try {
           result = await tools.execute(toolCall.name, toolCall.arguments);
-          log(`Tool result: ${JSON.stringify(result).slice(0, 200)}`);
+          logger.debug("tool result", { tool: toolCall.name, preview: JSON.stringify(result).slice(0, 200) });
         } catch (error) {
           isError = true;
           result = { error: error instanceof Error ? error.message : String(error) };
-          log(`Tool error: ${JSON.stringify(result)}`);
+          logger.debug("tool error", { tool: toolCall.name, error: result });
         }
 
         return {

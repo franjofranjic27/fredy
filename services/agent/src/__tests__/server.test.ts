@@ -2,7 +2,10 @@ import { describe, it, expect } from "vitest";
 import { createApp } from "../server.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { createMockLLMClient } from "./helpers/mock-llm.js";
+import { createLogger } from "../logger.js";
 import type { LLMResponse, Message } from "../llm/types.js";
+
+const silentLogger = createLogger({ level: "error", output: () => {} });
 
 function makeApp(responses: LLMResponse[] = [], captured?: Message[][]) {
   const config = {
@@ -11,6 +14,7 @@ function makeApp(responses: LLMResponse[] = [], captured?: Message[][]) {
     systemPrompt: "Test",
     maxIterations: 5,
     verbose: false,
+    logger: silentLogger,
   };
   return createApp(config);
 }
