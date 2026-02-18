@@ -85,47 +85,45 @@ export async function runAgent(
       messages.push({ role: "assistant", content: response.content });
     }
 
-    // Process each tool call
-    const toolResults: ToolResult[] = [];
+    // Process all tool calls in parallel
+    const results = await Promise.all(
+      response.toolCalls.map(async (toolCall) => {
+        log(`Tool call: ${toolCall.name}(${JSON.stringify(toolCall.arguments)})`);
 
-    for (const toolCall of response.toolCalls) {
-      log(`Tool call: ${toolCall.name}(${JSON.stringify(toolCall.arguments)})`);
+        let result: unknown;
+        let isError = false;
 
-      let result: unknown;
-      let isError = false;
+        try {
+          result = await tools.execute(toolCall.name, toolCall.arguments);
+          log(`Tool result: ${JSON.stringify(result).slice(0, 200)}`);
+        } catch (error) {
+          isError = true;
+          result = { error: error instanceof Error ? error.message : String(error) };
+          log(`Tool error: ${JSON.stringify(result)}`);
+        }
 
-      try {
-        result = await tools.execute(toolCall.name, toolCall.arguments);
-        log(`Tool result: ${JSON.stringify(result).slice(0, 200)}`);
-      } catch (error) {
-        isError = true;
-        result = {
-          error: error instanceof Error ? error.message : String(error),
+        return {
+          toolUsed: { name: toolCall.name, input: toolCall.arguments, output: result },
+          toolResult: {
+            toolCallId: toolCall.id,
+            content: JSON.stringify(result),
+            isError,
+          } satisfies ToolResult,
         };
-        log(`Tool error: ${JSON.stringify(result)}`);
-      }
+      })
+    );
 
-      toolsUsed.push({
-        name: toolCall.name,
-        input: toolCall.arguments,
-        output: result,
-      });
-
-      toolResults.push({
-        toolCallId: toolCall.id,
-        content: JSON.stringify(result),
-        isError,
-      });
+    const toolResults: ToolResult[] = [];
+    for (const { toolUsed, toolResult } of results) {
+      toolsUsed.push(toolUsed);
+      toolResults.push(toolResult);
     }
 
     // Add tool results as a user message for the next iteration
     messages.push({
       role: "user",
-      content: toolResults
-        .map(
-          (tr) =>
-            `Tool "${toolsUsed[toolsUsed.length - toolResults.length + toolResults.indexOf(tr)]?.name}" returned: ${tr.content}`
-        )
+      content: results
+        .map(({ toolUsed, toolResult }) => `Tool "${toolUsed.name}" returned: ${toolResult.content}`)
         .join("\n\n"),
     });
   }
