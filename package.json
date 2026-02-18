@@ -1,0 +1,11 @@
+{
+  "name": "fredy",
+  "private": true,
+  "scripts": {
+    "prepare": "lefthook install"
+  },
+  "devDependencies": {
+    "lefthook": "^1.11.0"
+  },
+  "packageManager": "pnpm@10.28.2"
+}

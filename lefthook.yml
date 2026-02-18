@@ -1,0 +1,18 @@
+commit-msg:
+  commands:
+    validate-message:
+      run: bash scripts/validate-commit-msg.sh {1}
+
+pre-commit:
+  parallel: true
+  commands:
+    typecheck-agent:
+      run: cd services/agent && pnpm exec tsc --noEmit
+    typecheck-rag:
+      run: cd services/rag && pnpm exec tsc --noEmit
+    test-agent:
+      run: cd services/agent && pnpm test:run
+    # test-rag:                        # enable after Todo 4 (services/rag/todos/04-tests-vitest.md)
+    #   run: cd services/rag && pnpm test:run
+    check-secrets:
+      run: bash scripts/check-secrets.sh
