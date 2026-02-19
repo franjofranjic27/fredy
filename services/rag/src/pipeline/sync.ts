@@ -3,6 +3,7 @@ import type { EmbeddingClient } from "../embeddings/index.js";
 import type { QdrantClient } from "../qdrant/index.js";
 import { chunkHtmlContent } from "../chunking/index.js";
 import type { ChunkingOptions } from "../chunking/types.js";
+import type { ConfluencePage } from "../confluence/types.js";
 
 export interface SyncOptions {
   spaces: string[];
@@ -18,6 +19,44 @@ export interface SyncResult {
   pagesDeleted: number;
   chunksCreated: number;
   syncTime: Date;
+}
+
+interface SyncPageOptions {
+  includeLabels?: string[];
+  excludeLabels?: string[];
+  chunkingOptions: ChunkingOptions;
+}
+
+async function syncPage(
+  page: ConfluencePage,
+  confluence: ConfluenceClient,
+  embedding: EmbeddingClient,
+  qdrant: QdrantClient,
+  result: SyncResult,
+  options: SyncPageOptions,
+  log: (msg: string) => void,
+): Promise<void> {
+  if (!confluence.shouldIncludePage(page, { includeLabels: options.includeLabels, excludeLabels: options.excludeLabels })) {
+    log(`  Deleting (excluded by label): ${page.title}`);
+    await qdrant.deletePageChunks(page.id);
+    result.pagesDeleted++;
+    return;
+  }
+
+  log(`  Updating: ${page.title}`);
+  const metadata = confluence.extractMetadata(page);
+  const chunks = chunkHtmlContent(page.body.storage.value, metadata, options.chunkingOptions);
+
+  await qdrant.deletePageChunks(page.id);
+
+  if (chunks.length > 0) {
+    const texts = chunks.map((c) => c.content);
+    const embeddings = await embedding.embed(texts);
+    await qdrant.upsertChunks(chunks, embeddings);
+  }
+
+  result.pagesUpdated++;
+  result.chunksCreated += chunks.length;
 }
 
 /**
@@ -40,50 +79,18 @@ export async function syncConfluence(
 
   const log = verbose ? console.log : () => {};
   const syncTime = new Date();
-
-  const result: SyncResult = {
-    pagesUpdated: 0,
-    pagesDeleted: 0,
-    chunksCreated: 0,
-    syncTime,
-  };
+  const result: SyncResult = { pagesUpdated: 0, pagesDeleted: 0, chunksCreated: 0, syncTime };
+  const pageOptions: SyncPageOptions = { includeLabels, excludeLabels, chunkingOptions };
 
   for (const spaceKey of spaces) {
     log(`\nSyncing space: ${spaceKey}`);
 
-    // Get modified pages
     const modifiedPages = await confluence.getModifiedPages(spaceKey, lastSyncTime);
     log(`  Found ${modifiedPages.length} modified pages`);
 
     for (const page of modifiedPages) {
       try {
-        // Check label filters
-        if (!confluence.shouldIncludePage(page, { includeLabels, excludeLabels })) {
-          // Page now has exclude label - delete from Qdrant
-          log(`  Deleting (excluded by label): ${page.title}`);
-          await qdrant.deletePageChunks(page.id);
-          result.pagesDeleted++;
-          continue;
-        }
-
-        log(`  Updating: ${page.title}`);
-
-        // Extract metadata and chunk
-        const metadata = confluence.extractMetadata(page);
-        const html = page.body.storage.value;
-        const chunks = chunkHtmlContent(html, metadata, chunkingOptions);
-
-        // Delete old chunks and insert new
-        await qdrant.deletePageChunks(page.id);
-
-        if (chunks.length > 0) {
-          const texts = chunks.map((c) => c.content);
-          const embeddings = await embedding.embed(texts);
-          await qdrant.upsertChunks(chunks, embeddings);
-        }
-
-        result.pagesUpdated++;
-        result.chunksCreated += chunks.length;
+        await syncPage(page, confluence, embedding, qdrant, result, pageOptions, log);
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         log(`    Error updating ${page.title}: ${errorMsg}`);

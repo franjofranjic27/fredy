@@ -5,7 +5,7 @@
 
 MSG_FILE="${1:-${LEFTHOOK_COMMIT_MSG_FILE}}"
 
-if [ -z "$MSG_FILE" ]; then
+if [[ -z "$MSG_FILE" ]]; then
   echo "validate-commit-msg: no message file provided" >&2
   exit 1
 fi
@@ -17,7 +17,7 @@ subject=$(echo "$subject" | sed 's/^#.*//')
 subject=$(echo "$subject" | xargs)  # trim whitespace
 
 # Allow empty subject (git will catch it separately)
-if [ -z "$subject" ]; then
+if [[ -z "$subject" ]]; then
   exit 0
 fi
 

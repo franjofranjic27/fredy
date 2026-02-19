@@ -11,8 +11,8 @@ export interface ConfluenceClientConfig {
 }
 
 export class ConfluenceClient {
-  private baseUrl: string;
-  private authHeader: string;
+  private readonly baseUrl: string;
+  private readonly authHeader: string;
 
   constructor(config: ConfluenceClientConfig) {
     // Remove trailing slash

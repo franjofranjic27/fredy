@@ -1,10 +1,10 @@
 import type { EmbeddingClient, EmbeddingConfig } from "./types.js";
 
 export class VoyageEmbedding implements EmbeddingClient {
-  private apiKey: string;
+  private readonly apiKey: string;
   readonly model: string;
   readonly dimensions: number;
-  private baseUrl = "https://api.voyageai.com/v1";
+  private readonly baseUrl = "https://api.voyageai.com/v1";
 
   constructor(config: EmbeddingConfig) {
     this.apiKey = config.apiKey;

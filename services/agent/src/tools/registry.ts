@@ -3,7 +3,7 @@ import type { AnyTool, Tool } from "./types.js";
 import type { ToolDefinition } from "../llm/types.js";
 
 export class ToolRegistry {
-  private tools = new Map<string, AnyTool>();
+  private readonly tools = new Map<string, AnyTool>();
 
   register<TInput, TOutput>(tool: Tool<TInput, TOutput>): this {
     this.tools.set(tool.name, tool as AnyTool);

@@ -1,7 +1,6 @@
 import { ToolRegistry } from "./tools/registry.js";
 
-export type Role = string;
-export type RoleToolConfig = Record<Role, string[]>;
+export type RoleToolConfig = Record<string, string[]>;
 
 /**
  * Parse ROLE_TOOL_CONFIG env var once at startup.
@@ -40,7 +39,7 @@ export function parseRoleToolConfig(raw: string | undefined): RoleToolConfig | n
  */
 export function filterToolsForRole(
   allToolNames: string[],
-  role: Role,
+  role: string,
   config: RoleToolConfig | null
 ): string[] {
   if (config === null) return allToolNames;
@@ -70,7 +69,7 @@ export function filterToolsForRole(
 export function resolveRole(
   headers: { get(name: string): string | null | undefined },
   jwtRole?: string | null
-): Role {
+): string {
   // JWT claim has highest priority — it is signature-verified and cannot be forged
   if (jwtRole && jwtRole.trim() !== "") return jwtRole.trim();
 
@@ -89,7 +88,7 @@ export function resolveRole(
  */
 export function buildFilteredRegistry(
   base: ToolRegistry,
-  role: Role,
+  role: string,
   config: RoleToolConfig | null
 ): ToolRegistry {
   const allowed = new Set(filterToolsForRole(base.list(), role, config));

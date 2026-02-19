@@ -10,8 +10,8 @@ export interface LocalFileClientConfig {
 }
 
 export class LocalFileClient {
-  private directory: string;
-  private extensions: Set<string>;
+  private readonly directory: string;
+  private readonly extensions: Set<string>;
 
   constructor(config: LocalFileClientConfig) {
     this.directory = config.directory;

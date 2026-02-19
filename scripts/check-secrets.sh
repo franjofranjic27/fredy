@@ -7,7 +7,7 @@ PATTERN='(api_key|apikey|api_token|auth_token|secret_key|password)\s*[=:]\s*["'"
 
 matches=$(git diff --cached | grep -E '^\+[^+]' | grep -iE "$PATTERN")
 
-if [ -n "$matches" ]; then
+if [[ -n "$matches" ]]; then
   echo ""
   echo "  ✗  Possible secret in staged changes:"
   echo ""

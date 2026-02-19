@@ -97,6 +97,22 @@ interface Section {
   contentType: "text" | "code" | "table" | "mixed";
 }
 
+function updateSectionContentType(section: Section, tag: string): void {
+  if (tag === "pre" || tag === "code") {
+    if (section.contentType === "text") {
+      section.contentType = "code";
+    } else if (section.contentType !== "code") {
+      section.contentType = "mixed";
+    }
+  } else if (tag === "table") {
+    if (section.contentType === "text") {
+      section.contentType = "table";
+    } else if (section.contentType !== "table") {
+      section.contentType = "mixed";
+    }
+  }
+}
+
 /**
  * Split HTML content into sections by headers
  */
@@ -147,20 +163,7 @@ function splitByHeaders(html: string): Section[] {
     }
 
     // Detect content type
-    if (tag === "pre" || tag === "code") {
-      if (currentSection.contentType === "text") {
-        currentSection.contentType = "code";
-      } else if (currentSection.contentType !== "code") {
-        currentSection.contentType = "mixed";
-      }
-    }
-    if (tag === "table") {
-      if (currentSection.contentType === "text") {
-        currentSection.contentType = "table";
-      } else if (currentSection.contentType !== "table") {
-        currentSection.contentType = "mixed";
-      }
-    }
+    updateSectionContentType(currentSection, tag);
 
     // Add content
     currentSection.content += htmlToText(element);

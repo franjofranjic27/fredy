@@ -14,9 +14,9 @@ export interface SearchResult {
 }
 
 export class QdrantClient {
-  private client: QdrantSDK;
-  private collectionName: string;
-  private vectorSize: number;
+  private readonly client: QdrantSDK;
+  private readonly collectionName: string;
+  private readonly vectorSize: number;
 
   constructor(config: QdrantConfig) {
     this.client = new QdrantSDK({

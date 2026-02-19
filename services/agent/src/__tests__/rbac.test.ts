@@ -169,7 +169,7 @@ describe("buildFilteredRegistry", () => {
     const base = makeRegistry("search", "fetch_url", "calc");
     const config = { user: ["search", "calc"] };
     const filtered = buildFilteredRegistry(base, "user", config);
-    expect(filtered.list().sort()).toEqual(["calc", "search"]);
+    expect(filtered.list().sort((a, b) => a.localeCompare(b))).toEqual(["calc", "search"]);
   });
 
   it("excluded tools throw when executed", async () => {
@@ -190,14 +190,14 @@ describe("buildFilteredRegistry", () => {
   it("returns full registry when config is null", () => {
     const base = makeRegistry("a", "b", "c");
     const filtered = buildFilteredRegistry(base, "user", null);
-    expect(filtered.list().sort()).toEqual(["a", "b", "c"]);
+    expect(filtered.list().sort((a, b) => a.localeCompare(b))).toEqual(["a", "b", "c"]);
   });
 
   it("returns full registry for admin with 'all'", () => {
     const base = makeRegistry("search", "fetch_url", "calc");
     const config = { admin: ["all"], user: ["search"] };
     const filtered = buildFilteredRegistry(base, "admin", config);
-    expect(filtered.list().sort()).toEqual(["calc", "fetch_url", "search"]);
+    expect(filtered.list().sort((a, b) => a.localeCompare(b))).toEqual(["calc", "fetch_url", "search"]);
   });
 
   it("does not mutate the base registry", () => {
@@ -205,6 +205,6 @@ describe("buildFilteredRegistry", () => {
     const config = { user: ["search"] };
     buildFilteredRegistry(base, "user", config);
     // Base still has both tools
-    expect(base.list().sort()).toEqual(["fetch_url", "search"]);
+    expect(base.list().sort((a, b) => a.localeCompare(b))).toEqual(["fetch_url", "search"]);
   });
 });

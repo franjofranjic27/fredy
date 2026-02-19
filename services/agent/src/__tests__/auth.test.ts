@@ -94,18 +94,18 @@ describe("verifyToken", () => {
 // extractRoleFromClaims
 // ---------------------------------------------------------------------------
 
-describe("extractRoleFromClaims", () => {
-  function makeClaims(roles: string[]): JwtClaims {
-    return {
-      sub: "u",
-      iss: ISSUER,
-      aud: AUDIENCE,
-      exp: 9999999999,
-      iat: 0,
-      realm_access: { roles },
-    };
-  }
+function makeClaims(roles: string[]): JwtClaims {
+  return {
+    sub: "u",
+    iss: ISSUER,
+    aud: AUDIENCE,
+    exp: 9999999999,
+    iat: 0,
+    realm_access: { roles },
+  };
+}
 
+describe("extractRoleFromClaims", () => {
   it("returns 'admin' when admin role is present", () => {
     expect(extractRoleFromClaims(makeClaims(["admin", "user"]))).toBe("admin");
   });
@@ -152,7 +152,7 @@ describe("resolveRole with jwtRole", () => {
 
   it("falls back to header when jwtRole is undefined", () => {
     const headers = { get: (n: string) => (n === "x-openwebui-user-role" ? "admin" : null) };
-    expect(resolveRole(headers, undefined)).toBe("admin");
+    expect(resolveRole(headers)).toBe("admin");
   });
 
   it("falls back to 'user' when jwtRole is null and no header", () => {

@@ -1,10 +1,10 @@
 import type { EmbeddingClient, EmbeddingConfig } from "./types.js";
 
 export class OpenAIEmbedding implements EmbeddingClient {
-  private apiKey: string;
+  private readonly apiKey: string;
   readonly model: string;
   readonly dimensions: number;
-  private baseUrl = "https://api.openai.com/v1";
+  private readonly baseUrl = "https://api.openai.com/v1";
 
   constructor(config: EmbeddingConfig) {
     this.apiKey = config.apiKey;
@@ -34,9 +34,8 @@ export class OpenAIEmbedding implements EmbeddingClient {
     const data = (await response.json()) as {
       data: Array<{ index: number; embedding: number[] }>;
     };
-    return data.data
-      .sort((a, b) => a.index - b.index)
-      .map((item) => item.embedding);
+    const sorted = [...data.data].sort((a, b) => a.index - b.index);
+    return sorted.map((item) => item.embedding);
   }
 
   async embedSingle(text: string): Promise<number[]> {

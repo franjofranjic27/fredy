@@ -38,6 +38,60 @@ export interface AgentResult {
   usage: TokenUsage;
 }
 
+async function callLlm(
+  llm: LLMClient,
+  messages: Message[],
+  tools: ToolRegistry,
+  onToken?: (delta: string) => Promise<void> | void,
+) {
+  try {
+    return await llm.chat(messages, tools.toDefinitions(), onToken);
+  } catch (error) {
+    if (error instanceof Anthropic.APIError) {
+      if (error.status === 429) {
+        throw new AgentError("RATE_LIMITED", "Rate limit exceeded", error);
+      }
+      if (error.status >= 500) {
+        throw new AgentError("API_ERROR", `Anthropic API error: ${error.status}`, error);
+      }
+    }
+    throw new AgentError("UNKNOWN", String(error), error);
+  }
+}
+
+async function executeToolCalls(
+  toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>,
+  tools: ToolRegistry,
+  logger: Logger,
+) {
+  return Promise.all(
+    toolCalls.map(async (toolCall) => {
+      logger.debug("tool call", { tool: toolCall.name, args: toolCall.arguments });
+
+      let result: unknown;
+      let isError = false;
+
+      try {
+        result = await tools.execute(toolCall.name, toolCall.arguments);
+        logger.debug("tool result", { tool: toolCall.name, preview: JSON.stringify(result).slice(0, 200) });
+      } catch (error) {
+        isError = true;
+        result = { error: error instanceof Error ? error.message : String(error) };
+        logger.debug("tool error", { tool: toolCall.name, error: result });
+      }
+
+      return {
+        toolUsed: { name: toolCall.name, input: toolCall.arguments, output: result },
+        toolResult: {
+          toolCallId: toolCall.id,
+          content: JSON.stringify(result),
+          isError,
+        } satisfies ToolResult,
+      };
+    })
+  );
+}
+
 export async function runAgent(
   config: AgentConfig,
   inputMessages: Message[],
@@ -58,20 +112,7 @@ export async function runAgent(
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     logger.debug("agent iteration", { iteration: iteration + 1 });
 
-    let response;
-    try {
-      response = await llm.chat(messages, tools.toDefinitions(), onToken);
-    } catch (error) {
-      if (error instanceof Anthropic.APIError) {
-        if (error.status === 429) {
-          throw new AgentError("RATE_LIMITED", "Rate limit exceeded", error);
-        }
-        if (error.status >= 500) {
-          throw new AgentError("API_ERROR", `Anthropic API error: ${error.status}`, error);
-        }
-      }
-      throw new AgentError("UNKNOWN", String(error), error);
-    }
+    const response = await callLlm(llm, messages, tools, onToken);
 
     if (response.usage) {
       totalUsage.inputTokens += response.usage.inputTokens;
@@ -100,37 +141,10 @@ export async function runAgent(
     }
 
     // Process all tool calls in parallel
-    const results = await Promise.all(
-      response.toolCalls.map(async (toolCall) => {
-        logger.debug("tool call", { tool: toolCall.name, args: toolCall.arguments });
+    const results = await executeToolCalls(response.toolCalls, tools, logger);
 
-        let result: unknown;
-        let isError = false;
-
-        try {
-          result = await tools.execute(toolCall.name, toolCall.arguments);
-          logger.debug("tool result", { tool: toolCall.name, preview: JSON.stringify(result).slice(0, 200) });
-        } catch (error) {
-          isError = true;
-          result = { error: error instanceof Error ? error.message : String(error) };
-          logger.debug("tool error", { tool: toolCall.name, error: result });
-        }
-
-        return {
-          toolUsed: { name: toolCall.name, input: toolCall.arguments, output: result },
-          toolResult: {
-            toolCallId: toolCall.id,
-            content: JSON.stringify(result),
-            isError,
-          } satisfies ToolResult,
-        };
-      })
-    );
-
-    const toolResults: ToolResult[] = [];
-    for (const { toolUsed, toolResult } of results) {
+    for (const { toolUsed } of results) {
       toolsUsed.push(toolUsed);
-      toolResults.push(toolResult);
     }
 
     // Add tool results as a user message for the next iteration
