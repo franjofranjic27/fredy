@@ -1,6 +1,8 @@
 import { QdrantClient as QdrantSDK } from "@qdrant/js-client-rest";
 import type { Chunk, ChunkMetadata } from "../chunking/types.js";
 
+type PageOffset = number | string | null | undefined;
+
 export interface QdrantConfig {
   url: string;
   collectionName: string;
@@ -195,7 +197,7 @@ export class QdrantClient {
    */
   async countBySpace(): Promise<Record<string, number>> {
     const counts: Record<string, number> = {};
-    let offset: number | string | null | undefined = undefined;
+    let offset: PageOffset = undefined;
 
     do {
       const response = await this.client.scroll(this.collectionName, {
@@ -212,7 +214,7 @@ export class QdrantClient {
         }
       }
 
-      offset = response.next_page_offset as number | string | null | undefined;
+      offset = response.next_page_offset as PageOffset;
     } while (offset !== null && offset !== undefined);
 
     return counts;
@@ -223,7 +225,7 @@ export class QdrantClient {
    */
   async listStoredPageIds(): Promise<string[]> {
     const pageIds = new Set<string>();
-    let offset: number | string | null | undefined = undefined;
+    let offset: PageOffset = undefined;
 
     do {
       const response = await this.client.scroll(this.collectionName, {
@@ -240,7 +242,7 @@ export class QdrantClient {
         }
       }
 
-      offset = response.next_page_offset as number | string | null | undefined;
+      offset = response.next_page_offset as PageOffset;
     } while (offset !== null && offset !== undefined);
 
     return [...pageIds];

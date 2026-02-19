@@ -7,6 +7,7 @@ import { LocalFileClient } from "./local/index.js";
 import { startSyncScheduler } from "./scheduler/cron.js";
 import { createLogger } from "./logger.js";
 import type { Logger } from "./logger.js";
+import type { Chunk } from "./chunking/types.js";
 
 type Source = "confluence" | "files" | "all";
 
@@ -222,6 +223,65 @@ async function handleInfo(qdrant: QdrantClient, config: Config): Promise<void> {
   console.log(`Indexed vectors: ${info.indexedVectorsCount}`);
 }
 
+async function diagnoseConfluenceComparison(
+  confluence: ConfluenceClient,
+  config: Config,
+  qdrant: QdrantClient,
+): Promise<void> {
+  console.log("\n=== 3. Confluence Comparison ===");
+  const storedIds = new Set(await qdrant.listStoredPageIds());
+  console.log(`Stored page IDs:  ${storedIds.size}`);
+
+  for (const spaceKey of config.confluence!.spaces) {
+    console.log(`\n  Space: ${spaceKey}`);
+    let confluenceCount = 0;
+    let missingCount = 0;
+
+    for await (const page of confluence.getAllPagesInSpace(spaceKey)) {
+      confluenceCount++;
+      if (!storedIds.has(page.id)) {
+        missingCount++;
+      }
+    }
+
+    console.log(`    Confluence pages: ${confluenceCount}`);
+    console.log(`    Missing in Qdrant: ${missingCount}`);
+    if (missingCount > 0) {
+      console.log(`    ⚠  ${missingCount} page(s) not indexed`);
+    }
+  }
+}
+
+function diagnoseSampleChunks(samples: Chunk[]): void {
+  console.log("\n=== 4. Sample Chunks ===");
+  if (samples.length === 0) {
+    console.log("  (no chunks to sample)");
+    return;
+  }
+  for (const chunk of samples) {
+    console.log(`  [${chunk.metadata.spaceKey}] ${chunk.metadata.title}`);
+    console.log(`    chunk ${chunk.metadata.chunkIndex + 1}/${chunk.metadata.totalChunks} — ${chunk.content.slice(0, 120).replaceAll("\n", " ")}…`);
+  }
+}
+
+function diagnoseHints(
+  info: { pointsCount: number; indexedVectorsCount: number },
+  spaceKeys: string[],
+  confluenceConfigured: boolean,
+): void {
+  console.log("\n=== 5. Diagnostic Hints ===");
+  if (info.pointsCount === 0) {
+    console.log("  • Collection is empty — run 'pnpm start ingest' to populate it.");
+  } else if (info.indexedVectorsCount < info.pointsCount) {
+    console.log(`  • ${info.pointsCount - info.indexedVectorsCount} chunk(s) not yet indexed — Qdrant may still be building indexes.`);
+  } else {
+    console.log("  • Collection looks healthy.");
+  }
+  if (spaceKeys.length > 0 && !confluenceConfigured) {
+    console.log("  • Confluence is not configured — incremental sync is disabled.");
+  }
+}
+
 async function handleDiagnose(
   confluence: ConfluenceClient | null,
   config: Config,
@@ -238,7 +298,7 @@ async function handleDiagnose(
 
   // 2. Breakdown per space
   const bySpace = await qdrant.countBySpace();
-  const spaceKeys = Object.keys(bySpace).sort();
+  const spaceKeys = Object.keys(bySpace).sort((a, b) => a.localeCompare(b));
   console.log("\n=== 2. Chunks per Space ===");
   if (spaceKeys.length === 0) {
     console.log("  (no chunks stored)");
@@ -250,28 +310,7 @@ async function handleDiagnose(
 
   // 3. Confluence comparison (if configured)
   if (confluence && config.confluence) {
-    console.log("\n=== 3. Confluence Comparison ===");
-    const storedIds = new Set(await qdrant.listStoredPageIds());
-    console.log(`Stored page IDs:  ${storedIds.size}`);
-
-    for (const spaceKey of config.confluence.spaces) {
-      console.log(`\n  Space: ${spaceKey}`);
-      let confluenceCount = 0;
-      let missingCount = 0;
-
-      for await (const page of confluence.getAllPagesInSpace(spaceKey)) {
-        confluenceCount++;
-        if (!storedIds.has(page.id)) {
-          missingCount++;
-        }
-      }
-
-      console.log(`    Confluence pages: ${confluenceCount}`);
-      console.log(`    Missing in Qdrant: ${missingCount}`);
-      if (missingCount > 0) {
-        console.log(`    ⚠  ${missingCount} page(s) not indexed`);
-      }
-    }
+    await diagnoseConfluenceComparison(confluence, config, qdrant);
   } else {
     console.log("\n=== 3. Confluence Comparison ===");
     console.log("  (Confluence not configured — skipped)");
@@ -279,28 +318,10 @@ async function handleDiagnose(
 
   // 4. Sample recent chunks
   const samples = await qdrant.sampleRecentChunks(3);
-  console.log("\n=== 4. Sample Chunks ===");
-  if (samples.length === 0) {
-    console.log("  (no chunks to sample)");
-  } else {
-    for (const chunk of samples) {
-      console.log(`  [${chunk.metadata.spaceKey}] ${chunk.metadata.title}`);
-      console.log(`    chunk ${chunk.metadata.chunkIndex + 1}/${chunk.metadata.totalChunks} — ${chunk.content.slice(0, 120).replace(/\n/g, " ")}…`);
-    }
-  }
+  diagnoseSampleChunks(samples);
 
   // 5. Diagnostic hints
-  console.log("\n=== 5. Diagnostic Hints ===");
-  if (info.pointsCount === 0) {
-    console.log("  • Collection is empty — run 'pnpm start ingest' to populate it.");
-  } else if (info.indexedVectorsCount < info.pointsCount) {
-    console.log(`  • ${info.pointsCount - info.indexedVectorsCount} chunk(s) not yet indexed — Qdrant may still be building indexes.`);
-  } else {
-    console.log("  • Collection looks healthy.");
-  }
-  if (spaceKeys.length > 0 && !config.confluence) {
-    console.log("  • Confluence is not configured — incremental sync is disabled.");
-  }
+  diagnoseHints(info, spaceKeys, !!confluence && !!config.confluence);
 }
 
 async function handleDaemon(
