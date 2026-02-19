@@ -1,13 +1,7 @@
 import { parse, HTMLElement, Node, NodeType } from "node-html-parser";
 import type { Chunk, ChunkMetadata, ChunkingOptions } from "./types.js";
 import type { PageMetadata } from "../confluence/types.js";
-
-/**
- * Rough token count estimation (1 token ≈ 4 chars for English)
- */
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
+import { countTokens } from "./tokenizer.js";
 
 /**
  * Convert table element to markdown-style text
@@ -216,7 +210,7 @@ function splitSection(
   section: Section,
   options: ChunkingOptions
 ): Section[] {
-  const tokens = estimateTokens(section.content);
+  const tokens = countTokens(section.content);
 
   if (tokens <= options.maxTokens) {
     return [section];
@@ -229,7 +223,7 @@ function splitSection(
   let currentTokens = 0;
 
   for (const para of paragraphs) {
-    const paraTokens = estimateTokens(para);
+    const paraTokens = countTokens(para);
 
     if (currentTokens + paraTokens > options.maxTokens && currentChunk) {
       chunks.push({
@@ -240,7 +234,7 @@ function splitSection(
       // Start new chunk with overlap
       const overlapText = getOverlapText(currentChunk, options.overlapTokens);
       currentChunk = overlapText + para + "\n\n";
-      currentTokens = estimateTokens(currentChunk);
+      currentTokens = countTokens(currentChunk);
     } else {
       currentChunk += para + "\n\n";
       currentTokens += paraTokens;
