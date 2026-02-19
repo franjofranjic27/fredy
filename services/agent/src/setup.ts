@@ -27,6 +27,27 @@ Guidelines:
 
 Available tools will be provided to you. Use them when appropriate to answer user questions.`;
 
+export function createToolRegistry(): ToolRegistry {
+  const tools = new ToolRegistry()
+    .register(fetchUrlTool)
+    .register(getCurrentTimeTool)
+    .register(calculatorTool);
+
+  const embeddingApiKey = process.env.EMBEDDING_API_KEY;
+  if (embeddingApiKey) {
+    const kbTool = createKnowledgeBaseTool({
+      qdrantUrl:         process.env.QDRANT_URL        ?? "http://localhost:6333",
+      collectionName:    process.env.QDRANT_COLLECTION ?? "confluence-pages",
+      embeddingApiKey,
+      embeddingModel:    process.env.EMBEDDING_MODEL   ?? "text-embedding-3-small",
+      embeddingProvider: (process.env.EMBEDDING_PROVIDER ?? "openai") as "openai" | "voyage",
+    });
+    tools.register(kbTool);
+  }
+
+  return tools;
+}
+
 export function createAgentConfig(
   overrides: { verbose?: boolean } = {}
 ): AgentConfig {
@@ -49,24 +70,7 @@ export function createAgentConfig(
     llm = createClaudeClient({ apiKey });
   }
 
-  const tools = new ToolRegistry()
-    .register(fetchUrlTool)
-    .register(getCurrentTimeTool)
-    .register(calculatorTool);
-
-  const embeddingApiKey = process.env.EMBEDDING_API_KEY;
-  if (embeddingApiKey) {
-    const kbTool = createKnowledgeBaseTool({
-      qdrantUrl: process.env.QDRANT_URL ?? "http://localhost:6333",
-      collectionName: process.env.QDRANT_COLLECTION ?? "confluence-pages",
-      embeddingApiKey,
-      embeddingModel: process.env.EMBEDDING_MODEL ?? "text-embedding-3-small",
-      embeddingProvider: (process.env.EMBEDDING_PROVIDER ?? "openai") as
-        | "openai"
-        | "voyage",
-    });
-    tools.register(kbTool);
-  }
+  const tools = createToolRegistry();
 
   const verbose = overrides.verbose ?? process.env.VERBOSE === "true";
 

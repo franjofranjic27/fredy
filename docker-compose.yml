@@ -22,6 +22,15 @@ services:
     volumes:
       - ollama:/root/.ollama
 
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
     container_name: litellm
@@ -126,7 +135,7 @@ services:
       - "8001:8001"
     environment:
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
-      LLM_PROVIDER: "${LLM_PROVIDER:-claude}"
+      LLM_PROVIDER: "${LLM_PROVIDER:-ollama}"
       OLLAMA_BASE_URL: "http://ollama:11434"
       OLLAMA_MODEL: "${OLLAMA_MODEL:-llama3.2}"
       EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER}"
@@ -165,3 +174,4 @@ volumes:
   ollama:
   open-webui:
   keycloak_data:
+  redis_data:
