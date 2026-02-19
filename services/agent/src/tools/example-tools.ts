@@ -11,7 +11,7 @@ export const fetchUrlTool: Tool<
   name: "fetch_url",
   description: "Fetches content from a URL and returns the response body",
   inputSchema: z.object({
-    url: z.string().url().describe("The URL to fetch"),
+    url: z.url().describe("The URL to fetch"),
   }),
   async execute({ url }) {
     const response = await fetch(url);
@@ -65,8 +65,8 @@ export const calculatorTool: Tool<
   }),
   async execute({ expression }) {
     // Simple safe evaluation - only allow numbers and basic operators
-    const sanitized = expression.replace(/[^0-9+\-*/().s]/g, "");
-    if (sanitized !== expression.replace(/\s/g, "")) {
+    const sanitized = expression.replaceAll(/[^0-9+\-*/().s]/g, "");
+    if (sanitized !== expression.replaceAll(/\s/g, "")) {
       return { result: "Error: Invalid characters in expression" };
     }
     try {

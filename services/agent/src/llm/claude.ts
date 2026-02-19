@@ -102,7 +102,7 @@ function buildMessages(messages: Message[]): Anthropic.MessageParam[] {
     if (msg.role === "system") continue;
 
     result.push({
-      role: msg.role as "user" | "assistant",
+      role: msg.role,
       content: msg.content,
     });
   }

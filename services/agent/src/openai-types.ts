@@ -55,7 +55,7 @@ export function createCompletionChunk(
     choices: [
       {
         index: 0,
-        delta: content !== null ? { content } : {},
+        delta: content === null ? {} : { content },
         finish_reason: finishReason,
       },
     ],

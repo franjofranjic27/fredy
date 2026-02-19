@@ -13,7 +13,7 @@ export interface JwtClaims {
 let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
 
 function getJwks(jwksUrl: string): ReturnType<typeof createRemoteJWKSet> {
-  if (!jwks) jwks = createRemoteJWKSet(new URL(jwksUrl));
+  jwks ??= createRemoteJWKSet(new URL(jwksUrl));
   return jwks;
 }
 

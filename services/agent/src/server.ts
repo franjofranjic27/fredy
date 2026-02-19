@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { serve } from "@hono/node-server";
-import { runAgent } from "./agent.js";
+import { runAgent, AgentError } from "./agent.js";
 import { createAgentConfig } from "./setup.js";
 import { parseRoleToolConfig, resolveRole, buildFilteredRegistry } from "./rbac.js";
 import { verifyToken, extractRoleFromClaims } from "./auth.js";
@@ -10,7 +10,6 @@ import {
   createCompletionResponse,
   createCompletionChunk,
 } from "./openai-types.js";
-import { AgentError } from "./agent.js";
 import type { AgentConfig } from "./agent.js";
 import type { Message } from "./llm/types.js";
 import { createLogger } from "./logger.js";
@@ -126,7 +125,7 @@ export function createApp(config: AgentConfig): Hono<Env> {
 
     const sessionId = c.req.header("x-session-id") ?? crypto.randomUUID();
     const session = sessions.get(sessionId) ?? { messages: [], lastActivity: Date.now() };
-    const lastUserContent = messages.filter((m) => m.role === "user").at(-1)?.content ?? "";
+    const lastUserContent = messages.findLast((m) => m.role === "user")?.content ?? "";
 
     c.header("x-session-id", sessionId);
 
@@ -238,7 +237,7 @@ export function createApp(config: AgentConfig): Hono<Env> {
 // Only start the HTTP server when not running under vitest
 if (!process.env.VITEST) {
   const config = createAgentConfig();
-  const port = parseInt(process.env.PORT ?? "8001", 10);
+  const port = Number.parseInt(process.env.PORT ?? "8001", 10);
   console.log(`Fredy Agent initialized — tools: ${config.tools.list().join(", ")}`);
   serve({ fetch: createApp(config).fetch, port }, () => {
     console.log(`Fredy Agent API listening on http://0.0.0.0:${port}`);

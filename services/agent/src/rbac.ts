@@ -45,14 +45,14 @@ export function filterToolsForRole(
   if (config === null) return allToolNames;
 
   if (role in config) {
-    const allowed = config[role]!;
+    const allowed = config[role];
     if (allowed.includes("all")) return allToolNames;
     return allToolNames.filter((name) => allowed.includes(name));
   }
 
   // Role not explicitly configured — fall back to "user" entry
   if ("user" in config) {
-    const userAllowed = config["user"]!;
+    const userAllowed = config["user"];
     if (userAllowed.includes("all")) return allToolNames;
     return allToolNames.filter((name) => userAllowed.includes(name));
   }
