@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createToolRegistry } from "../setup.js";
 
-const BASE_TOOLS = ["fetch_url", "get_current_time", "calculator"];
+const BASE_TOOLS = ["fetch_url", "get_current_time", "calculator", "get_knowledge_base_stats"];
 
 describe("createToolRegistry", () => {
   let savedEnv: NodeJS.ProcessEnv;

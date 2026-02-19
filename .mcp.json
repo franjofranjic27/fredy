@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "fredy-tools": {
+      "type": "stdio",
+      "command": "pnpm",
+      "args": ["--dir", "services/agent", "mcp-server"]
+    }
+  }
+}

@@ -5,6 +5,7 @@ import {
   getCurrentTimeTool,
   calculatorTool,
   createKnowledgeBaseTool,
+  createKnowledgeBaseStatsTool,
 } from "./tools/index.js";
 import type { AgentConfig } from "./agent.js";
 import { createLogger } from "./logger.js";
@@ -31,7 +32,11 @@ export function createToolRegistry(): ToolRegistry {
   const tools = new ToolRegistry()
     .register(fetchUrlTool)
     .register(getCurrentTimeTool)
-    .register(calculatorTool);
+    .register(calculatorTool)
+    .register(createKnowledgeBaseStatsTool({
+      qdrantUrl: process.env.QDRANT_URL ?? "http://localhost:6333",
+      collectionName: process.env.QDRANT_COLLECTION ?? "confluence-pages",
+    }));
 
   const embeddingApiKey = process.env.EMBEDDING_API_KEY;
   if (embeddingApiKey) {
