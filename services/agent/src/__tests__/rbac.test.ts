@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { z } from "zod";
 import { ToolRegistry } from "../tools/registry.js";
 import {

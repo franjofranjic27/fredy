@@ -15,7 +15,6 @@ const AUDIENCE = "fredy-agent";
 // We monkey-patch verifyToken to use a local JWKS instead of a remote URL.
 // The real verifyToken calls createRemoteJWKSet; for unit tests we swap it
 // for a local JWKS built from the generated public key.
-import * as authModule from "../auth.js";
 import * as jose from "jose";
 
 let localVerify: typeof verifyToken;

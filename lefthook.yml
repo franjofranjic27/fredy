@@ -10,6 +10,10 @@ pre-commit:
       run: cd services/agent && pnpm exec tsc --noEmit
     typecheck-rag:
       run: cd services/rag && pnpm exec tsc --noEmit
+    lint-agent:
+      run: cd services/agent && pnpm lint
+    lint-rag:
+      run: cd services/rag && pnpm lint
     test-agent:
       run: cd services/agent && pnpm test:run
     # test-rag:                        # enable after Todo 4 (services/rag/todos/04-tests-vitest.md)
