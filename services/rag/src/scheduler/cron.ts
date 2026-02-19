@@ -4,6 +4,7 @@ import type { EmbeddingClient } from "../embeddings/index.js";
 import type { QdrantClient } from "../qdrant/index.js";
 import { syncConfluence } from "../pipeline/index.js";
 import type { ChunkingOptions } from "../chunking/types.js";
+import type { Logger } from "../logger.js";
 
 export interface SchedulerConfig {
   cronSchedule: string;
@@ -11,6 +12,7 @@ export interface SchedulerConfig {
   includeLabels?: string[];
   excludeLabels?: string[];
   chunkingOptions: ChunkingOptions;
+  logger?: Logger;
 }
 
 export function startSyncScheduler(
@@ -19,12 +21,20 @@ export function startSyncScheduler(
   qdrant: QdrantClient,
   config: SchedulerConfig
 ): cron.ScheduledTask {
+  const { logger } = config;
   let lastSyncTime = new Date();
+  let syncInProgress = false;
 
-  console.log(`Starting sync scheduler with cron: ${config.cronSchedule}`);
+  logger?.info("Starting sync scheduler", { cronSchedule: config.cronSchedule });
 
   const task = cron.schedule(config.cronSchedule, async () => {
-    console.log(`\n[${new Date().toISOString()}] Starting scheduled sync...`);
+    if (syncInProgress) {
+      logger?.warn("Sync already in progress, skipping scheduled run");
+      return;
+    }
+
+    syncInProgress = true;
+    logger?.info("Starting scheduled sync");
 
     try {
       const result = await syncConfluence(confluence, embedding, qdrant, {
@@ -33,17 +43,21 @@ export function startSyncScheduler(
         excludeLabels: config.excludeLabels,
         chunkingOptions: config.chunkingOptions,
         lastSyncTime,
-        verbose: true,
+        logger,
       });
 
-      console.log(`Sync complete:`);
-      console.log(`  Pages updated: ${result.pagesUpdated}`);
-      console.log(`  Pages deleted: ${result.pagesDeleted}`);
-      console.log(`  Chunks created: ${result.chunksCreated}`);
+      logger?.info("Scheduled sync complete", {
+        pagesUpdated: result.pagesUpdated,
+        pagesDeleted: result.pagesDeleted,
+        chunksCreated: result.chunksCreated,
+      });
 
       lastSyncTime = result.syncTime;
     } catch (error) {
-      console.error("Sync failed:", error);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      logger?.error("Scheduled sync failed", { error: errorMsg });
+    } finally {
+      syncInProgress = false;
     }
   });
 

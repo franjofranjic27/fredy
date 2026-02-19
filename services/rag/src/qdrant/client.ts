@@ -191,6 +191,97 @@ export class QdrantClient {
   }
 
   /**
+   * Count stored chunks grouped by spaceKey
+   */
+  async countBySpace(): Promise<Record<string, number>> {
+    const counts: Record<string, number> = {};
+    let offset: number | string | null | undefined = undefined;
+
+    do {
+      const response = await this.client.scroll(this.collectionName, {
+        limit: 1000,
+        offset: offset ?? undefined,
+        with_payload: ["spaceKey"],
+        with_vector: false,
+      });
+
+      for (const point of response.points) {
+        const spaceKey = (point.payload as Record<string, unknown>)?.spaceKey as string | undefined;
+        if (spaceKey) {
+          counts[spaceKey] = (counts[spaceKey] ?? 0) + 1;
+        }
+      }
+
+      offset = response.next_page_offset as number | string | null | undefined;
+    } while (offset !== null && offset !== undefined);
+
+    return counts;
+  }
+
+  /**
+   * List all unique pageIds stored in the collection
+   */
+  async listStoredPageIds(): Promise<string[]> {
+    const pageIds = new Set<string>();
+    let offset: number | string | null | undefined = undefined;
+
+    do {
+      const response = await this.client.scroll(this.collectionName, {
+        limit: 1000,
+        offset: offset ?? undefined,
+        with_payload: ["pageId"],
+        with_vector: false,
+      });
+
+      for (const point of response.points) {
+        const pageId = (point.payload as Record<string, unknown>)?.pageId as string | undefined;
+        if (pageId) {
+          pageIds.add(pageId);
+        }
+      }
+
+      offset = response.next_page_offset as number | string | null | undefined;
+    } while (offset !== null && offset !== undefined);
+
+    return [...pageIds];
+  }
+
+  /**
+   * Return n sample chunks from the collection (most recently upserted)
+   */
+  async sampleRecentChunks(n: number): Promise<Chunk[]> {
+    const response = await this.client.scroll(this.collectionName, {
+      limit: n,
+      with_payload: true,
+      with_vector: false,
+    });
+
+    return response.points.map((point) => {
+      const payload = point.payload as Record<string, unknown>;
+      return {
+        id: payload.chunkId as string,
+        content: payload.content as string,
+        metadata: {
+          pageId: payload.pageId,
+          title: payload.title,
+          spaceKey: payload.spaceKey,
+          spaceName: payload.spaceName,
+          labels: payload.labels,
+          author: payload.author,
+          lastModified: payload.lastModified,
+          version: payload.version,
+          url: payload.url,
+          ancestors: payload.ancestors,
+          chunkIndex: payload.chunkIndex,
+          totalChunks: payload.totalChunks,
+          headerPath: payload.headerPath,
+          contentType: payload.contentType,
+        } as ChunkMetadata,
+      };
+    });
+  }
+
+  /**
    * Generate a numeric point ID from string chunk ID
    */
   private generatePointId(chunkId: string): number {

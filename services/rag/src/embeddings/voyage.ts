@@ -1,3 +1,4 @@
+import { withRetry } from "../utils/retry.js";
 import type { EmbeddingClient, EmbeddingConfig } from "./types.js";
 
 export class VoyageEmbedding implements EmbeddingClient {
@@ -13,28 +14,30 @@ export class VoyageEmbedding implements EmbeddingClient {
   }
 
   async embed(texts: string[]): Promise<number[][]> {
-    const response = await fetch(`${this.baseUrl}/embeddings`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.model,
-        input: texts,
-        input_type: "document",
-      }),
+    return withRetry(async () => {
+      const response = await fetch(`${this.baseUrl}/embeddings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: this.model,
+          input: texts,
+          input_type: "document",
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Voyage embedding failed (${response.status}): ${error}`);
+      }
+
+      const data = (await response.json()) as {
+        data: Array<{ embedding: number[] }>;
+      };
+      return data.data.map((item) => item.embedding);
     });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Voyage embedding failed: ${error}`);
-    }
-
-    const data = (await response.json()) as {
-      data: Array<{ embedding: number[] }>;
-    };
-    return data.data.map((item) => item.embedding);
   }
 
   async embedSingle(text: string): Promise<number[]> {

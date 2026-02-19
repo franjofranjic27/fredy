@@ -40,3 +40,4 @@ data/rag-files/*
 
 # Test coverage
 services/agent/coverage/
+services/rag/coverage/

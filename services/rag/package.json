@@ -7,7 +7,10 @@
     "dev": "tsx --env-file=../../.env src/index.ts",
     "ingest": "tsx --env-file=../../.env src/index.ts ingest",
     "sync": "tsx --env-file=../../.env src/index.ts sync",
-    "search": "tsx --env-file=../../.env src/index.ts search"
+    "search": "tsx --env-file=../../.env src/index.ts search",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@qdrant/js-client-rest": "^1.9.0",
@@ -19,6 +22,8 @@
     "@types/node": "^20.14.0",
     "@types/node-cron": "^3.0.11",
     "tsx": "^4.15.0",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "@vitest/coverage-v8": "^2.0.0",
+    "vitest": "^2.0.0"
   }
 }

@@ -5,6 +5,8 @@ import { QdrantClient } from "./qdrant/index.js";
 import { ingestConfluenceToQdrant, syncConfluence, ingestLocalFiles } from "./pipeline/index.js";
 import { LocalFileClient } from "./local/index.js";
 import { startSyncScheduler } from "./scheduler/cron.js";
+import { createLogger } from "./logger.js";
+import type { Logger } from "./logger.js";
 
 type Source = "confluence" | "files" | "all";
 
@@ -82,6 +84,7 @@ Examples:
   node dist/index.js ingest --source files           # Ingest local files only
   node dist/index.js daemon                          # Run as daemon
   node dist/index.js search "how to deploy"          # Search
+  node dist/index.js diagnose                        # Diagnose collection health
 `);
 }
 
@@ -92,56 +95,61 @@ async function handleIngest(
   embedding: EmbeddingClient,
   qdrant: QdrantClient,
   source: Source,
+  logger: Logger,
 ): Promise<void> {
-  console.log("Starting full ingestion...\n");
+  logger.info("Starting full ingestion");
 
   if (confluence && config.confluence) {
-    console.log(`[Confluence] Spaces: ${config.confluence.spaces.join(", ")}`);
-    console.log(`[Confluence] Exclude labels: ${config.confluence.excludeLabels.join(", ")}`);
-    if (config.confluence.includeLabels?.length) {
-      console.log(`[Confluence] Include labels: ${config.confluence.includeLabels.join(", ")}`);
-    }
-    console.log();
+    logger.info("Confluence ingestion starting", {
+      spaces: config.confluence.spaces.join(", "),
+      excludeLabels: config.confluence.excludeLabels.join(", "),
+      ...(config.confluence.includeLabels?.length
+        ? { includeLabels: config.confluence.includeLabels.join(", ") }
+        : {}),
+    });
 
     const result = await ingestConfluenceToQdrant(confluence, embedding, qdrant, {
       spaces: config.confluence.spaces,
       includeLabels: config.confluence.includeLabels,
       excludeLabels: config.confluence.excludeLabels,
       chunkingOptions: config.chunking,
-      verbose: true,
+      logger,
     });
 
-    console.log("\n=== Confluence Ingestion Complete ===");
-    console.log(`Pages processed: ${result.pagesProcessed}`);
-    console.log(`Pages skipped: ${result.pagesSkipped}`);
-    console.log(`Chunks created: ${result.chunksCreated}`);
-    if (result.errors.length > 0) {
-      console.log(`Errors: ${result.errors.length}`);
-      result.errors.forEach((e) => console.log(`  - ${e.pageId}: ${e.error}`));
+    logger.info("Confluence ingestion complete", {
+      pagesProcessed: result.pagesProcessed,
+      pagesSkipped: result.pagesSkipped,
+      chunksCreated: result.chunksCreated,
+      errors: result.errors.length,
+    });
+    for (const e of result.errors) {
+      logger.error("Page ingestion error", { pageId: e.pageId, error: e.error });
     }
   } else if (source === "confluence") {
-    console.log("Confluence not configured. Set CONFLUENCE_BASE_URL to enable.");
+    logger.warn("Confluence not configured — set CONFLUENCE_BASE_URL to enable");
   }
 
   if (localFileClient) {
-    console.log(`\n[Local Files] Directory: ${config.localFiles.directory}`);
-    console.log(`[Local Files] Extensions: ${config.localFiles.extensions.join(", ")}`);
-    console.log();
+    logger.info("Local file ingestion starting", {
+      directory: config.localFiles.directory,
+      extensions: config.localFiles.extensions.join(", "),
+    });
 
     const result = await ingestLocalFiles(localFileClient, embedding, qdrant, {
       chunkingOptions: config.chunking,
-      verbose: true,
+      logger,
     });
 
-    console.log("\n=== Local File Ingestion Complete ===");
-    console.log(`Files processed: ${result.filesProcessed}`);
-    console.log(`Chunks created: ${result.chunksCreated}`);
-    if (result.errors.length > 0) {
-      console.log(`Errors: ${result.errors.length}`);
-      result.errors.forEach((e) => console.log(`  - ${e.filePath}: ${e.error}`));
+    logger.info("Local file ingestion complete", {
+      filesProcessed: result.filesProcessed,
+      chunksCreated: result.chunksCreated,
+      errors: result.errors.length,
+    });
+    for (const e of result.errors) {
+      logger.error("File ingestion error", { filePath: e.filePath, error: e.error });
     }
   } else if (source === "files") {
-    console.log("Local files not enabled. Set LOCAL_FILES_ENABLED=true to enable.");
+    logger.warn("Local files not enabled — set LOCAL_FILES_ENABLED=true to enable");
   }
 }
 
@@ -150,27 +158,28 @@ async function handleSync(
   config: Config,
   embedding: EmbeddingClient,
   qdrant: QdrantClient,
+  logger: Logger,
 ): Promise<void> {
   if (!confluence || !config.confluence) {
-    console.error("Confluence not configured. Sync is only available for Confluence sources.");
-    console.error("Set CONFLUENCE_BASE_URL to enable.");
+    logger.error("Confluence not configured — sync is only available for Confluence sources. Set CONFLUENCE_BASE_URL to enable.");
     process.exit(1);
   }
 
-  console.log("Starting incremental sync...\n");
+  logger.info("Starting incremental sync");
 
   const result = await syncConfluence(confluence, embedding, qdrant, {
     spaces: config.confluence.spaces,
     includeLabels: config.confluence.includeLabels,
     excludeLabels: config.confluence.excludeLabels,
     chunkingOptions: config.chunking,
-    verbose: true,
+    logger,
   });
 
-  console.log("\n=== Sync Complete ===");
-  console.log(`Pages updated: ${result.pagesUpdated}`);
-  console.log(`Pages deleted: ${result.pagesDeleted}`);
-  console.log(`Chunks created: ${result.chunksCreated}`);
+  logger.info("Sync complete", {
+    pagesUpdated: result.pagesUpdated,
+    pagesDeleted: result.pagesDeleted,
+    chunksCreated: result.chunksCreated,
+  });
 }
 
 async function handleSearch(
@@ -213,19 +222,101 @@ async function handleInfo(qdrant: QdrantClient, config: Config): Promise<void> {
   console.log(`Indexed vectors: ${info.indexedVectorsCount}`);
 }
 
+async function handleDiagnose(
+  confluence: ConfluenceClient | null,
+  config: Config,
+  qdrant: QdrantClient,
+): Promise<void> {
+  await qdrant.initCollection();
+
+  // 1. Collection stats
+  const info = await qdrant.getCollectionInfo();
+  console.log("=== 1. Collection Stats ===");
+  console.log(`Collection:       ${config.qdrant.collectionName}`);
+  console.log(`Total chunks:     ${info.pointsCount}`);
+  console.log(`Indexed vectors:  ${info.indexedVectorsCount}`);
+
+  // 2. Breakdown per space
+  const bySpace = await qdrant.countBySpace();
+  const spaceKeys = Object.keys(bySpace).sort();
+  console.log("\n=== 2. Chunks per Space ===");
+  if (spaceKeys.length === 0) {
+    console.log("  (no chunks stored)");
+  } else {
+    for (const key of spaceKeys) {
+      console.log(`  ${key.padEnd(20)} ${bySpace[key]} chunks`);
+    }
+  }
+
+  // 3. Confluence comparison (if configured)
+  if (confluence && config.confluence) {
+    console.log("\n=== 3. Confluence Comparison ===");
+    const storedIds = new Set(await qdrant.listStoredPageIds());
+    console.log(`Stored page IDs:  ${storedIds.size}`);
+
+    for (const spaceKey of config.confluence.spaces) {
+      console.log(`\n  Space: ${spaceKey}`);
+      let confluenceCount = 0;
+      let missingCount = 0;
+
+      for await (const page of confluence.getAllPagesInSpace(spaceKey)) {
+        confluenceCount++;
+        if (!storedIds.has(page.id)) {
+          missingCount++;
+        }
+      }
+
+      console.log(`    Confluence pages: ${confluenceCount}`);
+      console.log(`    Missing in Qdrant: ${missingCount}`);
+      if (missingCount > 0) {
+        console.log(`    ⚠  ${missingCount} page(s) not indexed`);
+      }
+    }
+  } else {
+    console.log("\n=== 3. Confluence Comparison ===");
+    console.log("  (Confluence not configured — skipped)");
+  }
+
+  // 4. Sample recent chunks
+  const samples = await qdrant.sampleRecentChunks(3);
+  console.log("\n=== 4. Sample Chunks ===");
+  if (samples.length === 0) {
+    console.log("  (no chunks to sample)");
+  } else {
+    for (const chunk of samples) {
+      console.log(`  [${chunk.metadata.spaceKey}] ${chunk.metadata.title}`);
+      console.log(`    chunk ${chunk.metadata.chunkIndex + 1}/${chunk.metadata.totalChunks} — ${chunk.content.slice(0, 120).replace(/\n/g, " ")}…`);
+    }
+  }
+
+  // 5. Diagnostic hints
+  console.log("\n=== 5. Diagnostic Hints ===");
+  if (info.pointsCount === 0) {
+    console.log("  • Collection is empty — run 'pnpm start ingest' to populate it.");
+  } else if (info.indexedVectorsCount < info.pointsCount) {
+    console.log(`  • ${info.pointsCount - info.indexedVectorsCount} chunk(s) not yet indexed — Qdrant may still be building indexes.`);
+  } else {
+    console.log("  • Collection looks healthy.");
+  }
+  if (spaceKeys.length > 0 && !config.confluence) {
+    console.log("  • Confluence is not configured — incremental sync is disabled.");
+  }
+}
+
 async function handleDaemon(
   confluence: ConfluenceClient | null,
   localFileClient: LocalFileClient | null,
   config: Config,
   embedding: EmbeddingClient,
   qdrant: QdrantClient,
+  logger: Logger,
 ): Promise<void> {
-  console.log("Starting RAG daemon...\n");
+  logger.info("Starting RAG daemon");
 
   await qdrant.initCollection();
 
   if (config.sync.fullSyncOnStart) {
-    console.log("Running initial full ingestion...\n");
+    logger.info("Running initial full ingestion");
 
     if (confluence && config.confluence) {
       await ingestConfluenceToQdrant(confluence, embedding, qdrant, {
@@ -233,14 +324,14 @@ async function handleDaemon(
         includeLabels: config.confluence.includeLabels,
         excludeLabels: config.confluence.excludeLabels,
         chunkingOptions: config.chunking,
-        verbose: true,
+        logger,
       });
     }
 
     if (localFileClient) {
       await ingestLocalFiles(localFileClient, embedding, qdrant, {
         chunkingOptions: config.chunking,
-        verbose: true,
+        logger,
       });
     }
   }
@@ -252,22 +343,23 @@ async function handleDaemon(
       includeLabels: config.confluence.includeLabels,
       excludeLabels: config.confluence.excludeLabels,
       chunkingOptions: config.chunking,
+      logger,
     });
 
     process.on("SIGINT", () => {
-      console.log("\nStopping daemon...");
+      logger.info("Stopping daemon");
       task.stop();
       process.exit(0);
     });
   } else {
-    console.log("Confluence not configured — cron sync disabled.");
+    logger.warn("Confluence not configured — cron sync disabled");
     process.on("SIGINT", () => {
-      console.log("\nStopping daemon...");
+      logger.info("Stopping daemon");
       process.exit(0);
     });
   }
 
-  console.log("\nDaemon running. Press Ctrl+C to stop.\n");
+  logger.info("Daemon running — press Ctrl+C to stop");
 }
 
 async function main() {
@@ -279,6 +371,7 @@ async function main() {
   }
 
   const config = loadConfig();
+  const logger = createLogger({ level: config.logLevel });
 
   const confluence =
     !!config.confluence && (source === "confluence" || source === "all")
@@ -313,10 +406,10 @@ async function main() {
 
   switch (command) {
     case "ingest":
-      await handleIngest(confluence, localFileClient, config, embedding, qdrant, source);
+      await handleIngest(confluence, localFileClient, config, embedding, qdrant, source, logger);
       break;
     case "sync":
-      await handleSync(confluence, config, embedding, qdrant);
+      await handleSync(confluence, config, embedding, qdrant, logger);
       break;
     case "search":
       await handleSearch(query, embedding, qdrant);
@@ -324,8 +417,11 @@ async function main() {
     case "info":
       await handleInfo(qdrant, config);
       break;
+    case "diagnose":
+      await handleDiagnose(confluence, config, qdrant);
+      break;
     case "daemon":
-      await handleDaemon(confluence, localFileClient, config, embedding, qdrant);
+      await handleDaemon(confluence, localFileClient, config, embedding, qdrant, logger);
       break;
     default:
       console.error(`Unknown command: ${command}`);

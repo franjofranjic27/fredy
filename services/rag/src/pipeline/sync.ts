@@ -4,6 +4,7 @@ import type { QdrantClient } from "../qdrant/index.js";
 import { chunkHtmlContent } from "../chunking/index.js";
 import type { ChunkingOptions } from "../chunking/types.js";
 import type { ConfluencePage } from "../confluence/types.js";
+import type { Logger } from "../logger.js";
 
 export interface SyncOptions {
   spaces: string[];
@@ -11,7 +12,7 @@ export interface SyncOptions {
   excludeLabels?: string[];
   chunkingOptions: ChunkingOptions;
   lastSyncTime?: Date;
-  verbose?: boolean;
+  logger?: Logger;
 }
 
 export interface SyncResult {
@@ -25,6 +26,7 @@ interface SyncPageOptions {
   includeLabels?: string[];
   excludeLabels?: string[];
   chunkingOptions: ChunkingOptions;
+  logger?: Logger;
 }
 
 async function syncPage(
@@ -34,16 +36,16 @@ async function syncPage(
   qdrant: QdrantClient,
   result: SyncResult,
   options: SyncPageOptions,
-  log: (msg: string) => void,
 ): Promise<void> {
+  const { logger } = options;
   if (!confluence.shouldIncludePage(page, { includeLabels: options.includeLabels, excludeLabels: options.excludeLabels })) {
-    log(`  Deleting (excluded by label): ${page.title}`);
+    logger?.info("Deleting page (excluded by label)", { title: page.title, pageId: page.id });
     await qdrant.deletePageChunks(page.id);
     result.pagesDeleted++;
     return;
   }
 
-  log(`  Updating: ${page.title}`);
+  logger?.info("Updating page", { title: page.title });
   const metadata = confluence.extractMetadata(page);
   const chunks = chunkHtmlContent(page.body.storage.value, metadata, options.chunkingOptions);
 
@@ -74,26 +76,25 @@ export async function syncConfluence(
     excludeLabels,
     chunkingOptions,
     lastSyncTime = new Date(Date.now() - 24 * 60 * 60 * 1000), // Default: last 24 hours
-    verbose = false,
+    logger,
   } = options;
 
-  const log = verbose ? console.log : () => {};
   const syncTime = new Date();
   const result: SyncResult = { pagesUpdated: 0, pagesDeleted: 0, chunksCreated: 0, syncTime };
-  const pageOptions: SyncPageOptions = { includeLabels, excludeLabels, chunkingOptions };
+  const pageOptions: SyncPageOptions = { includeLabels, excludeLabels, chunkingOptions, logger };
 
   for (const spaceKey of spaces) {
-    log(`\nSyncing space: ${spaceKey}`);
+    logger?.info("Syncing space", { spaceKey });
 
     const modifiedPages = await confluence.getModifiedPages(spaceKey, lastSyncTime);
-    log(`  Found ${modifiedPages.length} modified pages`);
+    logger?.info("Found modified pages", { spaceKey, count: modifiedPages.length });
 
     for (const page of modifiedPages) {
       try {
-        await syncPage(page, confluence, embedding, qdrant, result, pageOptions, log);
+        await syncPage(page, confluence, embedding, qdrant, result, pageOptions);
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        log(`    Error updating ${page.title}: ${errorMsg}`);
+        logger?.error("Failed to sync page", { title: page.title, pageId: page.id, error: errorMsg });
       }
     }
   }

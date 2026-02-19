@@ -1,3 +1,4 @@
+import { withRetry } from "../utils/retry.js";
 import type {
   ConfluencePage,
   ConfluenceSearchResult,
@@ -24,20 +25,22 @@ export class ConfluenceClient {
   }
 
   private async fetch<T>(endpoint: string): Promise<T> {
-    const url = `${this.baseUrl}/rest/api${endpoint}`;
-    const response = await fetch(url, {
-      headers: {
-        Authorization: this.authHeader,
-        Accept: "application/json",
-      },
+    return withRetry(async () => {
+      const url = `${this.baseUrl}/rest/api${endpoint}`;
+      const response = await fetch(url, {
+        headers: {
+          Authorization: this.authHeader,
+          Accept: "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Confluence API error (${response.status}): ${error}`);
+      }
+
+      return response.json() as Promise<T>;
     });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Confluence API error (${response.status}): ${error}`);
-    }
-
-    return response.json() as Promise<T>;
   }
 
   /**

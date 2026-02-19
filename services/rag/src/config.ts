@@ -46,6 +46,8 @@ const ConfigSchema = z.object({
     directory: z.string().default("/data/files"),
     extensions: z.array(z.string()).default([".md", ".txt", ".html"]),
   }),
+
+  logLevel: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -99,5 +101,6 @@ export function loadConfig(): Config {
         ".html",
       ],
     },
+    logLevel: (process.env.LOG_LEVEL ?? "info") as "debug" | "info" | "warn" | "error",
   });
 }

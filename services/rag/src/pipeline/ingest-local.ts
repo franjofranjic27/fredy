@@ -4,11 +4,12 @@ import type { EmbeddingClient } from "../embeddings/index.js";
 import type { QdrantClient } from "../qdrant/index.js";
 import { chunkHtmlContent } from "../chunking/index.js";
 import type { Chunk, ChunkingOptions } from "../chunking/types.js";
+import type { Logger } from "../logger.js";
 
 export interface IngestLocalOptions {
   chunkingOptions: ChunkingOptions;
   batchSize?: number;
-  verbose?: boolean;
+  logger?: Logger;
 }
 
 export interface IngestLocalResult {
@@ -23,7 +24,7 @@ export async function ingestLocalFiles(
   qdrant: QdrantClient,
   options: IngestLocalOptions
 ): Promise<IngestLocalResult> {
-  const { chunkingOptions, batchSize = 10, verbose = false } = options;
+  const { chunkingOptions, batchSize = 10, logger } = options;
 
   const result: IngestLocalResult = {
     filesProcessed: 0,
@@ -31,56 +32,39 @@ export async function ingestLocalFiles(
     errors: [],
   };
 
-  const log = verbose ? console.log : () => {};
-
-  // Initialize collection
   await qdrant.initCollection();
 
-  log("\nProcessing local files...");
+  logger?.info("Processing local files");
 
   const chunksBuffer: Chunk[] = [];
 
   for await (const file of localFiles.getAllFiles()) {
     try {
-      log(`  Processing: ${file.relativePath}`);
+      logger?.info("Processing file", { path: file.relativePath });
 
-      // Extract metadata (returns PageMetadata with spaceKey "local")
       const metadata = localFiles.extractMetadata(file);
-
-      // Convert to HTML for the existing chunking pipeline
       const html = localFileToHtml(file.content, file.extension);
-
-      // Chunk the content
       const chunks = chunkHtmlContent(html, metadata, chunkingOptions);
-      log(`    Created ${chunks.length} chunks`);
+      logger?.debug("Chunks created", { path: file.relativePath, count: chunks.length });
 
-      // Delete existing chunks for this file (for updates)
       await qdrant.deletePageChunks(metadata.pageId);
 
-      // Add to buffer
       chunksBuffer.push(...chunks);
       result.filesProcessed++;
       result.chunksCreated += chunks.length;
 
-      // Process buffer when it reaches batch size
       if (chunksBuffer.length >= batchSize) {
-        await processChunkBatch(
-          chunksBuffer.splice(0, batchSize),
-          embedding,
-          qdrant,
-          log
-        );
+        await processChunkBatch(chunksBuffer.splice(0, batchSize), embedding, qdrant, logger);
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      log(`    Error: ${errorMsg}`);
+      logger?.error("Failed to process file", { path: file.relativePath, error: errorMsg });
       result.errors.push({ filePath: file.relativePath, error: errorMsg });
     }
   }
 
-  // Process remaining chunks
   if (chunksBuffer.length > 0) {
-    await processChunkBatch(chunksBuffer, embedding, qdrant, log);
+    await processChunkBatch(chunksBuffer, embedding, qdrant, logger);
   }
 
   return result;
@@ -90,14 +74,14 @@ async function processChunkBatch(
   chunks: Chunk[],
   embedding: EmbeddingClient,
   qdrant: QdrantClient,
-  log: (msg: string) => void
+  logger: Logger | undefined,
 ): Promise<void> {
-  log(`  Embedding ${chunks.length} chunks...`);
+  logger?.debug("Embedding chunk batch", { count: chunks.length });
 
   const texts = chunks.map((c) => c.content);
   const embeddings = await embedding.embed(texts);
 
   await qdrant.upsertChunks(chunks, embeddings);
 
-  log(`  Stored ${chunks.length} chunks in Qdrant`);
+  logger?.debug("Stored chunk batch in Qdrant", { count: chunks.length });
 }
