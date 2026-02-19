@@ -21,13 +21,21 @@ jobs:
         with:
           node-version: "22"
           cache: "pnpm"
-          cache-dependency-path: services/agent/pnpm-lock.yaml
+          cache-dependency-path: |
+            services/agent/pnpm-lock.yaml
+            services/rag/pnpm-lock.yaml
 
       - name: Install agent dependencies
         run: cd services/agent && pnpm install
 
-      - name: Run tests with coverage
+      - name: Install RAG dependencies
+        run: cd services/rag && pnpm install
+
+      - name: Run agent tests with coverage
         run: cd services/agent && pnpm test:coverage
+
+      - name: Run RAG tests with coverage
+        run: cd services/rag && pnpm test:coverage
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
