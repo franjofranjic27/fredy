@@ -1,6 +1,7 @@
 import type { EmbeddingClient } from "./types.js";
 import { OpenAIEmbedding } from "./openai.js";
 import { VoyageEmbedding } from "./voyage.js";
+import { CohereEmbedding } from "./cohere.js";
 
 export type { EmbeddingClient, EmbeddingConfig } from "./types.js";
 
@@ -30,8 +31,11 @@ export function createEmbeddingClient(
       });
 
     case "cohere":
-      // Cohere not yet implemented
-      throw new Error("Cohere embedding not yet implemented");
+      return new CohereEmbedding({
+        apiKey: options.apiKey,
+        model: options.model,
+        dimensions: options.dimensions,
+      });
 
     default:
       throw new Error(`Unknown embedding provider: ${options.provider}`);

@@ -13,6 +13,9 @@ import {
 import type { AgentConfig } from "./agent.js";
 import type { Message } from "./llm/types.js";
 import { createLogger } from "./logger.js";
+import type { SessionStore } from "./session/types.js";
+import { MemorySessionStore } from "./session/memory.js";
+import { createRateLimiter } from "./middleware/rate-limit.js";
 
 type Env = { Variables: { jwtRole: string | null } };
 
@@ -25,7 +28,7 @@ interface SessionEntry {
 
 const MODEL_ID = "fredy-it-agent";
 
-export function createApp(config: AgentConfig): Hono<Env> {
+export function createApp(config: AgentConfig, sessionStore?: SessionStore): Hono<Env> {
   const app = new Hono<Env>();
   const AGENT_API_KEY = process.env.AGENT_API_KEY;
   const KEYCLOAK_JWKS_URL = process.env.KEYCLOAK_JWKS_URL;
@@ -35,6 +38,8 @@ export function createApp(config: AgentConfig): Hono<Env> {
 
   // Throws at startup if ROLE_TOOL_CONFIG is set but malformed
   const roleToolConfig = parseRoleToolConfig(process.env.ROLE_TOOL_CONFIG);
+
+  const store: SessionStore = sessionStore ?? new MemorySessionStore();
 
   // Request timing — must be first so it wraps everything including auth
   app.use("*", async (c, next) => {
@@ -48,14 +53,8 @@ export function createApp(config: AgentConfig): Hono<Env> {
     });
   });
 
-  const sessions = new Map<string, SessionEntry>();
   const cleanupInterval = setInterval(() => {
-    const now = Date.now();
-    for (const [id, entry] of sessions) {
-      if (now - entry.lastActivity > SESSION_TTL_MS) {
-        sessions.delete(id);
-      }
-    }
+    void store.cleanup(SESSION_TTL_MS);
   }, SESSION_TTL_MS);
   cleanupInterval.unref();
 
@@ -86,6 +85,13 @@ export function createApp(config: AgentConfig): Hono<Env> {
     }
     return next();
   });
+
+  // Rate limiting on the chat endpoint
+  const rateLimiter = createRateLimiter({
+    rpm: Number.parseInt(process.env.RATE_LIMIT_RPM ?? "60", 10),
+    burst: Number.parseInt(process.env.RATE_LIMIT_BURST ?? "10", 10),
+  });
+  app.use("/v1/chat/completions", rateLimiter);
 
   app.get("/health", (c) => c.json({ status: "ok" }));
 
@@ -124,18 +130,19 @@ export function createApp(config: AgentConfig): Hono<Env> {
     }
 
     const sessionId = c.req.header("x-session-id") ?? crypto.randomUUID();
-    const session = sessions.get(sessionId) ?? { messages: [], lastActivity: Date.now() };
+    const existingSession = await store.get(sessionId);
+    const session: SessionEntry = existingSession ?? { messages: [], lastActivity: Date.now() };
     const lastUserContent = messages.findLast((m) => m.role === "user")?.content ?? "";
 
     c.header("x-session-id", sessionId);
 
-    const updateSession = (assistantResponse: string) => {
+    const updateSession = async (assistantResponse: string) => {
       session.messages.push(
         { role: "user", content: lastUserContent },
         { role: "assistant", content: assistantResponse }
       );
       session.lastActivity = Date.now();
-      sessions.set(sessionId, session);
+      await store.set(sessionId, session);
     };
 
     const statusMap: Record<string, number> = {
@@ -160,7 +167,7 @@ export function createApp(config: AgentConfig): Hono<Env> {
     if (!stream) {
       try {
         const result = await runAgent(requestConfig, messages, session.messages);
-        updateSession(result.response);
+        await updateSession(result.response);
         logger.info("agent run complete", {
           session_id: sessionId,
           iterations: result.iterations,
@@ -202,7 +209,7 @@ export function createApp(config: AgentConfig): Hono<Env> {
           },
         );
 
-        updateSession(result.response);
+        await updateSession(result.response);
         logger.info("agent run complete", {
           session_id: sessionId,
           iterations: result.iterations,

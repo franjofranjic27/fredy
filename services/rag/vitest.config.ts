@@ -19,6 +19,7 @@ export default defineConfig({
         "src/pipeline/index.ts",
         "src/qdrant/index.ts",
         "src/local/index.ts",
+        "src/embeddings/index.ts",
       ],
       reportsDirectory: "./coverage",
     },

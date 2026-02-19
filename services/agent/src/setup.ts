@@ -1,4 +1,4 @@
-import { createClaudeClient } from "./llm/index.js";
+import { createClaudeClient, createOllamaClient } from "./llm/index.js";
 import {
   ToolRegistry,
   fetchUrlTool,
@@ -30,14 +30,24 @@ Available tools will be provided to you. Use them when appropriate to answer use
 export function createAgentConfig(
   overrides: { verbose?: boolean } = {}
 ): AgentConfig {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "ANTHROPIC_API_KEY environment variable is required"
-    );
-  }
+  const llmProvider = process.env.LLM_PROVIDER ?? "claude";
 
-  const llm = createClaudeClient({ apiKey });
+  let llm: AgentConfig["llm"];
+
+  if (llmProvider === "ollama") {
+    llm = createOllamaClient({
+      baseUrl: process.env.OLLAMA_BASE_URL ?? "http://localhost:11434",
+      model: process.env.OLLAMA_MODEL ?? "llama3.2",
+    });
+  } else {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error(
+        "ANTHROPIC_API_KEY environment variable is required"
+      );
+    }
+    llm = createClaudeClient({ apiKey });
+  }
 
   const tools = new ToolRegistry()
     .register(fetchUrlTool)

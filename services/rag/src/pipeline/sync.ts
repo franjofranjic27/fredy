@@ -5,6 +5,8 @@ import { chunkHtmlContent } from "../chunking/index.js";
 import type { ChunkingOptions } from "../chunking/types.js";
 import type { ConfluencePage } from "../confluence/types.js";
 import type { Logger } from "../logger.js";
+import { getTracer } from "../tracing.js";
+import { SpanStatusCode } from "@opentelemetry/api";
 
 export interface SyncOptions {
   spaces: string[];
@@ -83,20 +85,34 @@ export async function syncConfluence(
   const result: SyncResult = { pagesUpdated: 0, pagesDeleted: 0, chunksCreated: 0, syncTime };
   const pageOptions: SyncPageOptions = { includeLabels, excludeLabels, chunkingOptions, logger };
 
-  for (const spaceKey of spaces) {
-    logger?.info("Syncing space", { spaceKey });
+  const tracer = getTracer();
+  const span = tracer.startSpan("rag.sync");
 
-    const modifiedPages = await confluence.getModifiedPages(spaceKey, lastSyncTime);
-    logger?.info("Found modified pages", { spaceKey, count: modifiedPages.length });
+  try {
+    for (const spaceKey of spaces) {
+      logger?.info("Syncing space", { spaceKey });
 
-    for (const page of modifiedPages) {
-      try {
-        await syncPage(page, confluence, embedding, qdrant, result, pageOptions);
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        logger?.error("Failed to sync page", { title: page.title, pageId: page.id, error: errorMsg });
+      const modifiedPages = await confluence.getModifiedPages(spaceKey, lastSyncTime);
+      logger?.info("Found modified pages", { spaceKey, count: modifiedPages.length });
+
+      for (const page of modifiedPages) {
+        try {
+          await syncPage(page, confluence, embedding, qdrant, result, pageOptions);
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          logger?.error("Failed to sync page", { title: page.title, pageId: page.id, error: errorMsg });
+        }
       }
     }
+
+    span.setAttribute("pages_updated", result.pagesUpdated);
+    span.setAttribute("pages_deleted", result.pagesDeleted);
+    span.setStatus({ code: SpanStatusCode.OK });
+  } catch (error) {
+    span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
+    throw error;
+  } finally {
+    span.end();
   }
 
   return result;

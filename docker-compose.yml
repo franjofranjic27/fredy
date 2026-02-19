@@ -73,10 +73,20 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    restart: unless-stopped
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+
   rag:
     build: ./services/rag
     container_name: rag
     restart: unless-stopped
+    env_file:
+      - .env
     depends_on:
       - qdrant
     environment:
@@ -99,6 +109,8 @@ services:
       CHUNK_OVERLAP_TOKENS: "${CHUNK_OVERLAP_TOKENS:-100}"
       LOCAL_FILES_ENABLED: "${LOCAL_FILES_ENABLED:-false}"
       LOCAL_FILES_EXTENSIONS: "${LOCAL_FILES_EXTENSIONS:-.md,.txt,.html}"
+      OTEL_ENABLED: "${OTEL_ENABLED:-false}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}"
     volumes:
       - ./data/rag-files:/data/files:ro
 
@@ -106,23 +118,34 @@ services:
     build: ./services/agent
     container_name: fredy-agent
     restart: unless-stopped
+    env_file:
+      - .env
     depends_on:
       - qdrant
     ports:
       - "8001:8001"
     environment:
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      LLM_PROVIDER: "${LLM_PROVIDER:-claude}"
+      OLLAMA_BASE_URL: "http://ollama:11434"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-llama3.2}"
       EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER}"
       EMBEDDING_API_KEY: "${EMBEDDING_API_KEY}"
       EMBEDDING_MODEL: "${EMBEDDING_MODEL:-text-embedding-3-small}"
       QDRANT_URL: "http://qdrant:6333"
       QDRANT_COLLECTION: "${QDRANT_COLLECTION:-confluence-pages}"
       PORT: "8001"
-      VERBOSE: "true"
+      VERBOSE: "${VERBOSE:-true}"
       ROLE_TOOL_CONFIG: >-
         {"admin":["all"],"user":["search_knowledge_base","get_current_time","calculator"]}
       DEFAULT_ROLE: "user"
       AGENT_API_KEY: "${AGENT_API_KEY}"
+      SESSION_STORE: "${SESSION_STORE:-memory}"
+      REDIS_URL: "${REDIS_URL:-redis://localhost:6379}"
+      RATE_LIMIT_RPM: "${RATE_LIMIT_RPM:-60}"
+      RATE_LIMIT_BURST: "${RATE_LIMIT_BURST:-10}"
+      OTEL_ENABLED: "${OTEL_ENABLED:-false}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}"
 
 #  postgres:
 #    image: pgvector/pgvector:pg17

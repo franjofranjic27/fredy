@@ -16,6 +16,10 @@
     "format": "prettier --write src"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.70.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.212.0",
+    "@opentelemetry/sdk-node": "^0.212.0",
     "@qdrant/js-client-rest": "^1.9.0",
     "js-tiktoken": "^1.0.15",
     "node-cron": "^3.0.3",

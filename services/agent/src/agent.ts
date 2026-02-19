@@ -3,6 +3,8 @@ import type { LLMClient, Message, ToolResult, TokenUsage } from "./llm/types.js"
 import type { ToolRegistry } from "./tools/registry.js";
 import { createLogger } from "./logger.js";
 import type { Logger } from "./logger.js";
+import { getTracer } from "./tracing.js";
+import { SpanStatusCode } from "@opentelemetry/api";
 
 export type AgentErrorCode =
   | "RATE_LIMITED"
@@ -44,9 +46,16 @@ async function callLlm(
   tools: ToolRegistry,
   onToken?: (delta: string) => Promise<void> | void,
 ) {
+  const tracer = getTracer();
+  const span = tracer.startSpan("llm.chat");
   try {
-    return await llm.chat(messages, tools.toDefinitions(), onToken);
+    const result = await llm.chat(messages, tools.toDefinitions(), onToken);
+    span.setAttribute("input_tokens", result.usage?.inputTokens ?? 0);
+    span.setAttribute("output_tokens", result.usage?.outputTokens ?? 0);
+    span.setStatus({ code: SpanStatusCode.OK });
+    return result;
   } catch (error) {
+    span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
     if (error instanceof Anthropic.APIError) {
       if (error.status === 429) {
         throw new AgentError("RATE_LIMITED", "Rate limit exceeded", error);
@@ -56,6 +65,8 @@ async function callLlm(
       }
     }
     throw new AgentError("UNKNOWN", String(error), error);
+  } finally {
+    span.end();
   }
 }
 
@@ -68,16 +79,26 @@ async function executeToolCalls(
     toolCalls.map(async (toolCall) => {
       logger.debug("tool call", { tool: toolCall.name, args: toolCall.arguments });
 
+      const tracer = getTracer();
+      const span = tracer.startSpan("tool.execute");
+      span.setAttribute("tool_name", toolCall.name);
+
       let result: unknown;
       let isError = false;
 
       try {
         result = await tools.execute(toolCall.name, toolCall.arguments);
+        span.setAttribute("success", true);
+        span.setStatus({ code: SpanStatusCode.OK });
         logger.debug("tool result", { tool: toolCall.name, preview: JSON.stringify(result).slice(0, 200) });
       } catch (error) {
         isError = true;
         result = { error: error instanceof Error ? error.message : String(error) };
+        span.setAttribute("success", false);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
         logger.debug("tool error", { tool: toolCall.name, error: result });
+      } finally {
+        span.end();
       }
 
       return {
@@ -103,58 +124,71 @@ export async function runAgent(
   const totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
   const logger = config.logger ?? createLogger({ level: verbose ? "debug" : "warn" });
 
+  const tracer = getTracer();
+  const agentSpan = tracer.startSpan("agent.run");
+
   const messages: Message[] = [
     { role: "system", content: systemPrompt },
     ...previousMessages.filter((m) => m.role !== "system"),
     ...inputMessages.filter((m) => m.role !== "system"),
   ];
 
-  for (let iteration = 0; iteration < maxIterations; iteration++) {
-    logger.debug("agent iteration", { iteration: iteration + 1 });
+  try {
+    for (let iteration = 0; iteration < maxIterations; iteration++) {
+      logger.debug("agent iteration", { iteration: iteration + 1 });
 
-    const response = await callLlm(llm, messages, tools, onToken);
+      const response = await callLlm(llm, messages, tools, onToken);
 
-    if (response.usage) {
-      totalUsage.inputTokens += response.usage.inputTokens;
-      totalUsage.outputTokens += response.usage.outputTokens;
+      if (response.usage) {
+        totalUsage.inputTokens += response.usage.inputTokens;
+        totalUsage.outputTokens += response.usage.outputTokens;
+      }
+
+      logger.debug("llm response", {
+        stopReason: response.stopReason,
+        ...(response.content ? { preview: response.content.slice(0, 100) } : {}),
+        ...(response.usage ? { inputTokens: response.usage.inputTokens, outputTokens: response.usage.outputTokens } : {}),
+      });
+
+      // If no tool calls, return the final response
+      if (response.stopReason !== "tool_use" || response.toolCalls.length === 0) {
+        agentSpan.setAttribute("iterations", iteration + 1);
+        agentSpan.setAttribute("tools_used", toolsUsed.length);
+        agentSpan.setStatus({ code: SpanStatusCode.OK });
+        return {
+          response: response.content ?? "",
+          toolsUsed,
+          iterations: iteration + 1,
+          usage: totalUsage,
+        };
+      }
+
+      // Add assistant message with tool calls
+      if (response.content) {
+        messages.push({ role: "assistant", content: response.content });
+      }
+
+      // Process all tool calls in parallel
+      const results = await executeToolCalls(response.toolCalls, tools, logger);
+
+      for (const { toolUsed } of results) {
+        toolsUsed.push(toolUsed);
+      }
+
+      // Add tool results as a user message for the next iteration
+      messages.push({
+        role: "user",
+        content: results
+          .map(({ toolUsed, toolResult }) => `Tool "${toolUsed.name}" returned: ${toolResult.content}`)
+          .join("\n\n"),
+      });
     }
 
-    logger.debug("llm response", {
-      stopReason: response.stopReason,
-      ...(response.content ? { preview: response.content.slice(0, 100) } : {}),
-      ...(response.usage ? { inputTokens: response.usage.inputTokens, outputTokens: response.usage.outputTokens } : {}),
-    });
-
-    // If no tool calls, return the final response
-    if (response.stopReason !== "tool_use" || response.toolCalls.length === 0) {
-      return {
-        response: response.content ?? "",
-        toolsUsed,
-        iterations: iteration + 1,
-        usage: totalUsage,
-      };
-    }
-
-    // Add assistant message with tool calls
-    if (response.content) {
-      messages.push({ role: "assistant", content: response.content });
-    }
-
-    // Process all tool calls in parallel
-    const results = await executeToolCalls(response.toolCalls, tools, logger);
-
-    for (const { toolUsed } of results) {
-      toolsUsed.push(toolUsed);
-    }
-
-    // Add tool results as a user message for the next iteration
-    messages.push({
-      role: "user",
-      content: results
-        .map(({ toolUsed, toolResult }) => `Tool "${toolUsed.name}" returned: ${toolResult.content}`)
-        .join("\n\n"),
-    });
+    throw new AgentError("MAX_ITERATIONS", `Agent exceeded max iterations (${maxIterations})`);
+  } catch (error) {
+    agentSpan.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
+    throw error;
+  } finally {
+    agentSpan.end();
   }
-
-  throw new AgentError("MAX_ITERATIONS", `Agent exceeded max iterations (${maxIterations})`);
 }

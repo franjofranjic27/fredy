@@ -5,6 +5,8 @@ import { chunkHtmlContent } from "../chunking/index.js";
 import type { Chunk, ChunkingOptions } from "../chunking/types.js";
 import type { ConfluencePage } from "../confluence/types.js";
 import type { Logger } from "../logger.js";
+import { getTracer } from "../tracing.js";
+import { SpanStatusCode } from "@opentelemetry/api";
 
 export interface IngestOptions {
   spaces: string[];
@@ -116,10 +118,24 @@ export async function ingestConfluenceToQdrant(
 
   const pageOptions: PageProcessOptions = { includeLabels, excludeLabels, chunkingOptions, batchSize, logger };
 
-  await qdrant.initCollection();
+  const tracer = getTracer();
+  const span = tracer.startSpan("rag.ingest");
 
-  for (const spaceKey of spaces) {
-    await processSpace(spaceKey, confluence, embedding, qdrant, pageOptions, result);
+  try {
+    await qdrant.initCollection();
+
+    for (const spaceKey of spaces) {
+      await processSpace(spaceKey, confluence, embedding, qdrant, pageOptions, result);
+    }
+
+    span.setAttribute("pages_processed", result.pagesProcessed);
+    span.setAttribute("chunks_created", result.chunksCreated);
+    span.setStatus({ code: SpanStatusCode.OK });
+  } catch (error) {
+    span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
+    throw error;
+  } finally {
+    span.end();
   }
 
   return result;

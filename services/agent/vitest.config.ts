@@ -16,6 +16,7 @@ export default defineConfig({
         "src/**/types.ts",
         "src/llm/index.ts",
         "src/tools/index.ts",
+        "src/session/index.ts",
       ],
       reportsDirectory: "./coverage",
     },
