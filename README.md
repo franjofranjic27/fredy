@@ -1,4 +1,6 @@
-# Fredy
+# 🐨 Fredy — OPS-AI Assistant
+
+![fredy-logo.png](docs/assets/fredy-logo.png)
 
 An AI Agent platform for exploring and implementing generative AI best practices — RAG pipelines, MCP servers, and autonomous agents backed by Claude.
 
