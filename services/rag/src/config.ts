@@ -73,7 +73,7 @@ export function loadConfig(): Config {
       provider: process.env.EMBEDDING_PROVIDER as "openai" | "voyage" | "cohere",
       apiKey: process.env.EMBEDDING_API_KEY,
       model: process.env.EMBEDDING_MODEL ?? "text-embedding-3-small",
-      dimensions: parseInt(process.env.EMBEDDING_DIMENSIONS ?? "1536"),
+      dimensions: Number.parseInt(process.env.EMBEDDING_DIMENSIONS ?? "1536", 10),
     },
     qdrant: {
       url: process.env.QDRANT_URL ?? "http://localhost:6333",
@@ -81,8 +81,8 @@ export function loadConfig(): Config {
       apiKey: process.env.QDRANT_API_KEY,
     },
     chunking: {
-      maxTokens: parseInt(process.env.CHUNK_MAX_TOKENS ?? "800"),
-      overlapTokens: parseInt(process.env.CHUNK_OVERLAP_TOKENS ?? "100"),
+      maxTokens: Number.parseInt(process.env.CHUNK_MAX_TOKENS ?? "800", 10),
+      overlapTokens: Number.parseInt(process.env.CHUNK_OVERLAP_TOKENS ?? "100", 10),
       preserveCodeBlocks: process.env.CHUNK_PRESERVE_CODE !== "false",
       preserveTables: process.env.CHUNK_PRESERVE_TABLES !== "false",
     },

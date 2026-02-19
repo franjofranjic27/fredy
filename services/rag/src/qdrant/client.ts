@@ -197,7 +197,7 @@ export class QdrantClient {
     // Simple hash function for converting string to number
     let hash = 0;
     for (let i = 0; i < chunkId.length; i++) {
-      const char = chunkId.charCodeAt(i);
+      const char = chunkId.codePointAt(i) ?? 0;
       hash = (hash << 5) - hash + char;
       hash = hash & hash; // Convert to 32-bit integer
     }

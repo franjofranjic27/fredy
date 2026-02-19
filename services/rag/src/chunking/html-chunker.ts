@@ -81,7 +81,7 @@ function htmlToText(node: Node): string {
 
   // Headers - add markdown-style markers
   if (/^h[1-6]$/.test(tag)) {
-    const level = parseInt(tag[1]);
+    const level = Number.parseInt(tag[1], 10);
     const prefix = "#".repeat(level);
     const content = element.childNodes.map((c) => htmlToText(c)).join("");
     return `\n${prefix} ${content}\n\n`;
@@ -144,7 +144,7 @@ function splitByHeaders(html: string): Section[] {
         sections.push({ ...currentSection });
       }
 
-      const level = parseInt(tag[1]);
+      const level = Number.parseInt(tag[1], 10);
       const headerText = element.text.trim();
 
       // Update header stack
@@ -196,12 +196,12 @@ function getOverlapText(content: string, overlapTokens: number): string {
   const text = content.slice(overlapStart);
 
   // Find first sentence or word boundary
-  const sentenceMatch = text.match(/^[^.!?]*[.!?]\s*/);
+  const sentenceMatch = /^[^.!?]*[.!?]\s*/.exec(text);
   if (sentenceMatch) {
     return text.slice(sentenceMatch[0].length);
   }
 
-  const wordMatch = text.match(/^\S*\s+/);
+  const wordMatch = /^\S*\s+/.exec(text);
   if (wordMatch) {
     return text.slice(wordMatch[0].length);
   }

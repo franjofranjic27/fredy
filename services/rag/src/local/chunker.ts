@@ -46,7 +46,7 @@ function markdownToHtml(md: string): string {
     }
 
     // Headers
-    const headerMatch = line.match(/^(#{1,6})\s+(.+)$/);
+    const headerMatch = /^(#{1,6})\s+(.+)$/.exec(line);
     if (headerMatch) {
       const level = headerMatch[1].length;
       htmlParts.push(`<h${level}>${escapeHtml(headerMatch[2])}</h${level}>`);
@@ -83,7 +83,7 @@ function textToHtml(text: string): string {
 
 function escapeHtml(text: string): string {
   return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }

@@ -30,7 +30,7 @@ export function createEmbeddingClient(
       });
 
     case "cohere":
-      // TODO: Implement Cohere client
+      // Cohere not yet implemented
       throw new Error("Cohere embedding not yet implemented");
 
     default:

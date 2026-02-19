@@ -28,19 +28,23 @@ interface PageProcessOptions {
   batchSize: number;
 }
 
+interface ProcessContext {
+  chunksBuffer: Chunk[];
+  result: IngestResult;
+}
+
 async function processPage(
   page: ConfluencePage,
   confluence: ConfluenceClient,
   embedding: EmbeddingClient,
   qdrant: QdrantClient,
-  chunksBuffer: Chunk[],
-  result: IngestResult,
+  context: ProcessContext,
   options: PageProcessOptions,
   log: (msg: string) => void,
 ): Promise<void> {
   if (!confluence.shouldIncludePage(page, { includeLabels: options.includeLabels, excludeLabels: options.excludeLabels })) {
     log(`  Skipping (label filter): ${page.title}`);
-    result.pagesSkipped++;
+    context.result.pagesSkipped++;
     return;
   }
 
@@ -50,12 +54,39 @@ async function processPage(
   log(`    Created ${chunks.length} chunks`);
 
   await qdrant.deletePageChunks(page.id);
-  chunksBuffer.push(...chunks);
-  result.pagesProcessed++;
-  result.chunksCreated += chunks.length;
+  context.chunksBuffer.push(...chunks);
+  context.result.pagesProcessed++;
+  context.result.chunksCreated += chunks.length;
 
-  if (chunksBuffer.length >= options.batchSize) {
-    await processChunkBatch(chunksBuffer.splice(0, options.batchSize), embedding, qdrant, log);
+  if (context.chunksBuffer.length >= options.batchSize) {
+    await processChunkBatch(context.chunksBuffer.splice(0, options.batchSize), embedding, qdrant, log);
+  }
+}
+
+async function processSpace(
+  spaceKey: string,
+  confluence: ConfluenceClient,
+  embedding: EmbeddingClient,
+  qdrant: QdrantClient,
+  pageOptions: PageProcessOptions,
+  result: IngestResult,
+  log: (msg: string) => void,
+): Promise<void> {
+  log(`\nProcessing space: ${spaceKey}`);
+  const context: ProcessContext = { chunksBuffer: [], result };
+
+  for await (const page of confluence.getAllPagesInSpace(spaceKey)) {
+    try {
+      await processPage(page, confluence, embedding, qdrant, context, pageOptions, log);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log(`    Error: ${errorMsg}`);
+      result.errors.push({ pageId: page.id, error: errorMsg });
+    }
+  }
+
+  if (context.chunksBuffer.length > 0) {
+    await processChunkBatch(context.chunksBuffer, embedding, qdrant, log);
   }
 }
 
@@ -87,22 +118,7 @@ export async function ingestConfluenceToQdrant(
   await qdrant.initCollection();
 
   for (const spaceKey of spaces) {
-    log(`\nProcessing space: ${spaceKey}`);
-    const chunksBuffer: Chunk[] = [];
-
-    for await (const page of confluence.getAllPagesInSpace(spaceKey)) {
-      try {
-        await processPage(page, confluence, embedding, qdrant, chunksBuffer, result, pageOptions, log);
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        log(`    Error: ${errorMsg}`);
-        result.errors.push({ pageId: page.id, error: errorMsg });
-      }
-    }
-
-    if (chunksBuffer.length > 0) {
-      await processChunkBatch(chunksBuffer, embedding, qdrant, log);
-    }
+    await processSpace(spaceKey, confluence, embedding, qdrant, pageOptions, result, log);
   }
 
   return result;
