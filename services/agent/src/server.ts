@@ -3,6 +3,7 @@ import { streamSSE } from "hono/streaming";
 import { serve } from "@hono/node-server";
 import { runAgent } from "./agent.js";
 import { createAgentConfig } from "./setup.js";
+import { parseRoleToolConfig, resolveRole, buildFilteredRegistry } from "./rbac.js";
 import {
   ChatCompletionRequestSchema,
   createCompletionResponse,
@@ -26,6 +27,9 @@ export function createApp(config: AgentConfig): Hono {
   const app = new Hono();
   const AGENT_API_KEY = process.env.AGENT_API_KEY;
   const logger = config.logger ?? createLogger();
+
+  // Throws at startup if ROLE_TOOL_CONFIG is set but malformed
+  const roleToolConfig = parseRoleToolConfig(process.env.ROLE_TOOL_CONFIG);
 
   // Request timing — must be first so it wraps everything including auth
   app.use("*", async (c, next) => {
@@ -120,9 +124,20 @@ export function createApp(config: AgentConfig): Hono {
       UNKNOWN: 500,
     };
 
+    const role = resolveRole({ get: (n) => c.req.header(n) });
+    const requestConfig: AgentConfig = {
+      ...config,
+      tools: buildFilteredRegistry(config.tools, role, roleToolConfig),
+    };
+    logger.info("rbac resolved", {
+      session_id: sessionId,
+      role,
+      tools_allowed: requestConfig.tools.list(),
+    });
+
     if (!stream) {
       try {
-        const result = await runAgent(config, messages, session.messages);
+        const result = await runAgent(requestConfig, messages, session.messages);
         updateSession(result.response);
         logger.info("agent run complete", {
           session_id: sessionId,
@@ -155,7 +170,7 @@ export function createApp(config: AgentConfig): Hono {
 
       try {
         const result = await runAgent(
-          config,
+          requestConfig,
           messages,
           session.messages,
           async (delta) => {
