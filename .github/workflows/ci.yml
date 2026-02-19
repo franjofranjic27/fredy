@@ -1,20 +1,16 @@
-name: SonarQube Analysis
+name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened]
 
 jobs:
-  sonar:
+  test:
     if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # full history required for blame/new-code detection
 
       - uses: pnpm/action-setup@v4
 
@@ -32,13 +28,20 @@ jobs:
       - name: Install RAG dependencies
         run: cd services/rag && pnpm install
 
-      - name: Run agent tests with coverage
-        run: cd services/agent && pnpm test:coverage
+      - name: Typecheck agent
+        run: cd services/agent && pnpm exec tsc --noEmit
 
-      - name: Run RAG tests with coverage
-        run: cd services/rag && pnpm test:coverage
+      - name: Typecheck RAG
+        run: cd services/rag && pnpm exec tsc --noEmit
 
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v6
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: Lint agent
+        run: cd services/agent && pnpm lint
+
+      - name: Lint RAG
+        run: cd services/rag && pnpm lint
+
+      - name: Test agent
+        run: cd services/agent && pnpm test:run
+
+      - name: Test RAG
+        run: cd services/rag && pnpm test:run
