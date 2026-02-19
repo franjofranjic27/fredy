@@ -5,5 +5,12 @@ export default defineConfig({
     globals: true,
     environment: "node",
     exclude: ["**/e2e/**", "**/node_modules/**"],
+    coverage: {
+      provider: "v8",
+      reporter: ["lcov", "text"],
+      include: ["src/**/*.ts"],
+      exclude: ["src/**/__tests__/**", "src/**/*.test.ts", "src/index.ts"],
+      reportsDirectory: "./coverage",
+    },
   },
 });

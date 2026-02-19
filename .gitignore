@@ -37,3 +37,6 @@ build/
 # RAG local files (keep placeholder)
 data/rag-files/*
 !data/rag-files/.gitkeep
+
+# Test coverage
+services/agent/coverage/
