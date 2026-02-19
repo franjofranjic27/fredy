@@ -65,9 +65,15 @@ export function filterToolsForRole(
 
 /**
  * Resolve the effective role for a request.
- * Priority: x-openwebui-user-role header → DEFAULT_ROLE env var → "user"
+ * Priority: jwtRole (signature-verified) → x-openwebui-user-role header → DEFAULT_ROLE env var → "user"
  */
-export function resolveRole(headers: { get(name: string): string | null | undefined }): Role {
+export function resolveRole(
+  headers: { get(name: string): string | null | undefined },
+  jwtRole?: string | null
+): Role {
+  // JWT claim has highest priority — it is signature-verified and cannot be forged
+  if (jwtRole && jwtRole.trim() !== "") return jwtRole.trim();
+
   const fromHeader = headers.get("x-openwebui-user-role");
   if (fromHeader && fromHeader.trim() !== "") return fromHeader.trim();
 

@@ -4,6 +4,7 @@ import { serve } from "@hono/node-server";
 import { runAgent } from "./agent.js";
 import { createAgentConfig } from "./setup.js";
 import { parseRoleToolConfig, resolveRole, buildFilteredRegistry } from "./rbac.js";
+import { verifyToken, extractRoleFromClaims } from "./auth.js";
 import {
   ChatCompletionRequestSchema,
   createCompletionResponse,
@@ -14,6 +15,8 @@ import type { AgentConfig } from "./agent.js";
 import type { Message } from "./llm/types.js";
 import { createLogger } from "./logger.js";
 
+type Env = { Variables: { jwtRole: string | null } };
+
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 interface SessionEntry {
@@ -23,9 +26,12 @@ interface SessionEntry {
 
 const MODEL_ID = "fredy-it-agent";
 
-export function createApp(config: AgentConfig): Hono {
-  const app = new Hono();
+export function createApp(config: AgentConfig): Hono<Env> {
+  const app = new Hono<Env>();
   const AGENT_API_KEY = process.env.AGENT_API_KEY;
+  const KEYCLOAK_JWKS_URL = process.env.KEYCLOAK_JWKS_URL;
+  const KEYCLOAK_ISSUER = process.env.KEYCLOAK_ISSUER;
+  const KEYCLOAK_AUDIENCE = process.env.KEYCLOAK_AUDIENCE ?? "fredy-agent";
   const logger = config.logger ?? createLogger();
 
   // Throws at startup if ROLE_TOOL_CONFIG is set but malformed
@@ -55,12 +61,29 @@ export function createApp(config: AgentConfig): Hono {
   cleanupInterval.unref();
 
   app.use("*", async (c, next) => {
-    if (c.req.path === "/health") return next();   // health stays open
-    if (!AGENT_API_KEY) return next();             // no key → dev mode
+    if (c.req.path === "/health") return next();
+
     const auth = c.req.header("authorization") ?? "";
     const [scheme, token] = auth.split(" ");
-    if (scheme?.toLowerCase() !== "bearer" || token !== AGENT_API_KEY) {
-      return c.json({ error: { message: "Invalid API key" } }, 401);
+
+    if (!KEYCLOAK_JWKS_URL) {
+      // Dev mode: no Keycloak — fall back to static API key check
+      if (AGENT_API_KEY && (scheme?.toLowerCase() !== "bearer" || token !== AGENT_API_KEY)) {
+        return c.json({ error: { message: "Invalid API key" } }, 401);
+      }
+      c.set("jwtRole", null);
+      return next();
+    }
+
+    // Keycloak mode: validate JWT
+    if (scheme?.toLowerCase() !== "bearer" || !token) {
+      return c.json({ error: { message: "Bearer token required" } }, 401);
+    }
+    try {
+      const claims = await verifyToken(token, KEYCLOAK_JWKS_URL, KEYCLOAK_ISSUER!, KEYCLOAK_AUDIENCE);
+      c.set("jwtRole", extractRoleFromClaims(claims));
+    } catch {
+      return c.json({ error: { message: "Invalid or expired token" } }, 401);
     }
     return next();
   });
@@ -124,7 +147,7 @@ export function createApp(config: AgentConfig): Hono {
       UNKNOWN: 500,
     };
 
-    const role = resolveRole({ get: (n) => c.req.header(n) });
+    const role = resolveRole({ get: (n) => c.req.header(n) }, c.get("jwtRole"));
     const requestConfig: AgentConfig = {
       ...config,
       tools: buildFilteredRegistry(config.tools, role, roleToolConfig),

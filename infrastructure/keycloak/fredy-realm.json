@@ -1,0 +1,99 @@
+{
+  "realm": "fredy",
+  "enabled": true,
+  "displayName": "Fredy",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "roles": {
+    "realm": [
+      { "name": "admin", "description": "Administrator with full access" },
+      { "name": "user", "description": "Regular user with limited access" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "openwebui",
+      "name": "Open WebUI",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "CHANGE_ME",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect",
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "defaultClientScopes": ["web-origins", "acr", "roles", "profile", "email"],
+      "optionalClientScopes": ["address", "phone", "offline_access", "microprofile-jwt"],
+      "protocolMappers": [
+        {
+          "name": "realm-roles-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "fredy-agent",
+      "name": "Fredy Agent",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect",
+      "defaultClientScopes": ["web-origins", "acr", "roles", "profile", "email"],
+      "optionalClientScopes": ["address", "phone", "offline_access", "microprofile-jwt"]
+    }
+  ],
+  "users": [
+    {
+      "username": "admin-user",
+      "email": "admin@fredy.local",
+      "firstName": "Admin",
+      "lastName": "User",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin-user",
+          "temporary": true
+        }
+      ],
+      "realmRoles": ["admin"]
+    },
+    {
+      "username": "regular-user",
+      "email": "user@fredy.local",
+      "firstName": "Regular",
+      "lastName": "User",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "regular-user",
+          "temporary": true
+        }
+      ],
+      "realmRoles": ["user"]
+    }
+  ]
+}

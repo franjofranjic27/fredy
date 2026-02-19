@@ -1,4 +1,18 @@
 services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26
+    container_name: keycloak
+    command: start-dev --import-realm
+    restart: unless-stopped
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD}"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./infrastructure/keycloak:/opt/keycloak/data/import:ro
+      - keycloak_data:/opt/keycloak/data
+
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
@@ -28,6 +42,7 @@ services:
       - litellm
       - qdrant
       - agent
+      - keycloak
     ports:
       - "3000:8080"
     environment:
@@ -37,6 +52,14 @@ services:
       VECTOR_DB: "qdrant"
       QDRANT_URI: "http://qdrant:6333"
       ENABLE_FORWARD_USER_INFO_HEADERS: "true"
+      OAUTH_CLIENT_ID: "openwebui"
+      OAUTH_CLIENT_SECRET: "${KEYCLOAK_OPENWEBUI_SECRET}"
+      OPENID_PROVIDER_URL: "http://keycloak:8080/realms/fredy/.well-known/openid-configuration"
+      OAUTH_PROVIDER_NAME: "Keycloak"
+      ENABLE_OAUTH_SIGNUP: "true"
+      OAUTH_ROLES_CLAIM: "roles"
+      OAUTH_ALLOWED_ROLES: "user,admin"
+      OAUTH_ADMIN_ROLES: "admin"
     volumes:
       - open-webui:/app/backend/data
 
@@ -98,6 +121,9 @@ services:
       ROLE_TOOL_CONFIG: >-
         {"admin":["all"],"user":["search_knowledge_base","get_current_time","calculator"]}
       DEFAULT_ROLE: "user"
+      KEYCLOAK_JWKS_URL: "http://keycloak:8080/realms/fredy/protocol/openid-connect/certs"
+      KEYCLOAK_ISSUER: "http://keycloak:8080/realms/fredy"
+      KEYCLOAK_AUDIENCE: "fredy-agent"
 
 #  postgres:
 #    image: pgvector/pgvector:pg17
@@ -116,3 +142,4 @@ volumes:
   qdrant_data:
   ollama:
   open-webui:
+  keycloak_data:
