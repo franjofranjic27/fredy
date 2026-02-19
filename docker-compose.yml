@@ -1,6 +1,6 @@
 services:
   keycloak:
-    image: quay.io/keycloak/keycloak:26
+    image: quay.io/keycloak/keycloak:latest
     container_name: keycloak
     command: start-dev --import-realm
     restart: unless-stopped
@@ -60,6 +60,7 @@ services:
       OAUTH_ROLES_CLAIM: "roles"
       OAUTH_ALLOWED_ROLES: "user,admin"
       OAUTH_ADMIN_ROLES: "admin"
+      DEFAULT_USER_ROLE: "user"
     volumes:
       - open-webui:/app/backend/data
 
