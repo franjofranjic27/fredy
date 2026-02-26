@@ -80,7 +80,7 @@ export function loadConfig(): Config {
     qdrant: {
       url: process.env.QDRANT_URL ?? "http://localhost:6333",
       collectionName: process.env.QDRANT_COLLECTION ?? "confluence-pages",
-      apiKey: process.env.QDRANT_API_KEY,
+      apiKey: process.env.QDRANT_API_KEY || undefined,
     },
     chunking: {
       maxTokens: Number.parseInt(process.env.CHUNK_MAX_TOKENS ?? "800", 10),
