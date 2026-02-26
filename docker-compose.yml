@@ -135,7 +135,7 @@ services:
       - "8001:8001"
     environment:
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
-      LLM_PROVIDER: "${LLM_PROVIDER:-ollama}"
+      LLM_PROVIDER: "${LLM_PROVIDER:-claude}"
       OLLAMA_BASE_URL: "http://ollama:11434"
       OLLAMA_MODEL: "${OLLAMA_MODEL:-llama3.2}"
       EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER}"
