@@ -10,7 +10,13 @@ export function createMcpServer(registry: ToolRegistry = createToolRegistry()): 
 
   for (const name of registry.list()) {
     const tool = registry.get(name)!;
-    const shape = (tool.inputSchema as z.ZodObject<z.ZodRawShape>).shape;
+
+    if (!(tool.inputSchema instanceof z.ZodObject)) {
+      console.error(`[mcp-server] Skipping tool "${name}": inputSchema is not a ZodObject`);
+      continue;
+    }
+
+    const shape = tool.inputSchema.shape;
 
     server.tool(name, tool.description, shape, async (args) => {
       try {

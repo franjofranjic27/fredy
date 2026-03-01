@@ -1,4 +1,4 @@
-import { ToolRegistry } from "./tools/registry.js";
+import { ToolRegistry } from "../tools/registry.js";
 
 export type RoleToolConfig = Record<string, string[]>;
 
@@ -40,7 +40,8 @@ export function parseRoleToolConfig(raw: string | undefined): RoleToolConfig | n
 export function filterToolsForRole(
   allToolNames: string[],
   role: string,
-  config: RoleToolConfig | null
+  config: RoleToolConfig | null,
+  warn?: (msg: string) => void,
 ): string[] {
   if (config === null) return allToolNames;
 
@@ -58,23 +59,34 @@ export function filterToolsForRole(
   }
 
   // No fallback available — log warning and allow all
-  console.warn(`[rbac] Role "${role}" not found in ROLE_TOOL_CONFIG and no "user" fallback — allowing all tools`);
+  const msg = `[rbac] Role "${role}" not found in ROLE_TOOL_CONFIG and no "user" fallback — allowing all tools`;
+  (warn ?? console.warn)(msg);
   return allToolNames;
 }
 
 /**
  * Resolve the effective role for a request.
- * Priority: jwtRole (signature-verified) → x-openwebui-user-role header → DEFAULT_ROLE env var → "user"
+ * Priority: jwtRole (signature-verified) → x-openwebui-user-role header (only when
+ * Keycloak is active) → DEFAULT_ROLE env var → "user"
+ *
+ * The x-openwebui-user-role header is trusted only when keycloakEnabled is true.
+ * Without Keycloak, the header is unauthenticated and trivially spoofable, so it
+ * is ignored and the fallback chain continues to DEFAULT_ROLE / "user".
  */
 export function resolveRole(
   headers: { get(name: string): string | null | undefined },
-  jwtRole?: string | null
+  jwtRole?: string | null,
+  keycloakEnabled?: boolean,
 ): string {
   // JWT claim has highest priority — it is signature-verified and cannot be forged
   if (jwtRole && jwtRole.trim() !== "") return jwtRole.trim();
 
-  const fromHeader = headers.get("x-openwebui-user-role");
-  if (fromHeader && fromHeader.trim() !== "") return fromHeader.trim();
+  // Trust the Open-WebUI role header only when Keycloak is validating JWTs.
+  // In dev/no-Keycloak mode any caller can spoof this header.
+  if (keycloakEnabled) {
+    const fromHeader = headers.get("x-openwebui-user-role");
+    if (fromHeader && fromHeader.trim() !== "") return fromHeader.trim();
+  }
 
   const fromEnv = process.env.DEFAULT_ROLE;
   if (fromEnv && fromEnv.trim() !== "") return fromEnv.trim();
@@ -89,9 +101,10 @@ export function resolveRole(
 export function buildFilteredRegistry(
   base: ToolRegistry,
   role: string,
-  config: RoleToolConfig | null
+  config: RoleToolConfig | null,
+  warn?: (msg: string) => void,
 ): ToolRegistry {
-  const allowed = new Set(filterToolsForRole(base.list(), role, config));
+  const allowed = new Set(filterToolsForRole(base.list(), role, config, warn));
   const filtered = new ToolRegistry();
   for (const name of allowed) {
     const tool = base.get(name);

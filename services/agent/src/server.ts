@@ -3,28 +3,24 @@ import { streamSSE } from "hono/streaming";
 import { serve } from "@hono/node-server";
 import { runAgent, AgentError } from "./agent.js";
 import { createAgentConfig } from "./setup.js";
-import { parseRoleToolConfig, resolveRole, buildFilteredRegistry } from "./rbac.js";
-import { verifyToken, extractRoleFromClaims } from "./auth.js";
+import { parseRoleToolConfig, resolveRole, buildFilteredRegistry } from "./auth/index.js";
+import { verifyToken, extractRoleFromClaims } from "./auth/index.js";
 import {
   ChatCompletionRequestSchema,
   createCompletionResponse,
   createCompletionChunk,
 } from "./openai-types.js";
 import type { AgentConfig } from "./agent.js";
-import type { Message } from "./llm/types.js";
 import { createLogger } from "./logger.js";
 import type { SessionStore } from "./session/types.js";
+import type { SessionEntry } from "./session/types.js";
 import { MemorySessionStore } from "./session/memory.js";
+import { createSessionStore } from "./session/index.js";
 import { createRateLimiter } from "./middleware/rate-limit.js";
 
 type Env = { Variables: { jwtRole: string | null } };
 
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
-
-interface SessionEntry {
-  messages: Message[];
-  lastActivity: number;
-}
 
 const MODEL_ID = "fredy-it-agent";
 
@@ -78,7 +74,12 @@ export function createApp(config: AgentConfig, sessionStore?: SessionStore): Hon
       return c.json({ error: { message: "Bearer token required" } }, 401);
     }
     try {
-      const claims = await verifyToken(token, KEYCLOAK_JWKS_URL, KEYCLOAK_ISSUER!, KEYCLOAK_AUDIENCE);
+      const claims = await verifyToken(
+        token,
+        KEYCLOAK_JWKS_URL,
+        KEYCLOAK_ISSUER!,
+        KEYCLOAK_AUDIENCE,
+      );
       c.set("jwtRole", extractRoleFromClaims(claims));
     } catch {
       return c.json({ error: { message: "Invalid or expired token" } }, 401);
@@ -106,7 +107,7 @@ export function createApp(config: AgentConfig, sessionStore?: SessionStore): Hon
           owned_by: "fredy",
         },
       ],
-    })
+    }),
   );
 
   app.post("/v1/chat/completions", async (c) => {
@@ -114,19 +115,13 @@ export function createApp(config: AgentConfig, sessionStore?: SessionStore): Hon
     const parsed = ChatCompletionRequestSchema.safeParse(body);
 
     if (!parsed.success) {
-      return c.json(
-        { error: { message: "Invalid request", details: parsed.error.issues } },
-        400
-      );
+      return c.json({ error: { message: "Invalid request", details: parsed.error.issues } }, 400);
     }
 
     const { messages, stream } = parsed.data;
 
     if (!messages.some((m) => m.role === "user")) {
-      return c.json(
-        { error: { message: "No user message found" } },
-        400
-      );
+      return c.json({ error: { message: "No user message found" } }, 400);
     }
 
     const sessionId = c.req.header("x-session-id") ?? crypto.randomUUID();
@@ -139,7 +134,7 @@ export function createApp(config: AgentConfig, sessionStore?: SessionStore): Hon
     const updateSession = async (assistantResponse: string) => {
       session.messages.push(
         { role: "user", content: lastUserContent },
-        { role: "assistant", content: assistantResponse }
+        { role: "assistant", content: assistantResponse },
       );
       session.lastActivity = Date.now();
       await store.set(sessionId, session);
@@ -153,10 +148,14 @@ export function createApp(config: AgentConfig, sessionStore?: SessionStore): Hon
       UNKNOWN: 500,
     };
 
-    const role = resolveRole({ get: (n) => c.req.header(n) }, c.get("jwtRole"));
+    const role = resolveRole(
+      { get: (n) => c.req.header(n) },
+      c.get("jwtRole"),
+      !!KEYCLOAK_JWKS_URL,
+    );
     const requestConfig: AgentConfig = {
       ...config,
-      tools: buildFilteredRegistry(config.tools, role, roleToolConfig),
+      tools: buildFilteredRegistry(config.tools, role, roleToolConfig, (msg) => logger.warn(msg)),
     };
     logger.info("rbac resolved", {
       session_id: sessionId,
@@ -178,10 +177,14 @@ export function createApp(config: AgentConfig, sessionStore?: SessionStore): Hon
         return c.json(createCompletionResponse(result.response, MODEL_ID, result.usage));
       } catch (error) {
         if (error instanceof AgentError) {
-          logger.error("agent run failed", { session_id: sessionId, code: error.code, message: error.message });
+          logger.error("agent run failed", {
+            session_id: sessionId,
+            code: error.code,
+            message: error.message,
+          });
           return c.json(
             { error: { message: error.message, code: error.code } },
-            statusMap[error.code] as 429 | 500 | 502
+            statusMap[error.code] as 429 | 500 | 502,
           );
         }
         logger.error("unexpected error", { session_id: sessionId, error: String(error) });
@@ -198,16 +201,11 @@ export function createApp(config: AgentConfig, sessionStore?: SessionStore): Hon
       });
 
       try {
-        const result = await runAgent(
-          requestConfig,
-          messages,
-          session.messages,
-          async (delta) => {
-            await sseStream.writeSSE({
-              data: JSON.stringify(createCompletionChunk(id, delta, null, MODEL_ID)),
-            });
-          },
-        );
+        const result = await runAgent(requestConfig, messages, session.messages, async (delta) => {
+          await sseStream.writeSSE({
+            data: JSON.stringify(createCompletionChunk(id, delta, null, MODEL_ID)),
+          });
+        });
 
         await updateSession(result.response);
         logger.info("agent run complete", {
@@ -220,9 +218,17 @@ export function createApp(config: AgentConfig, sessionStore?: SessionStore): Hon
         });
       } catch (error) {
         if (error instanceof AgentError) {
-          logger.error("agent run failed", { session_id: sessionId, code: error.code, message: error.message, stream: true });
+          logger.error("agent run failed", {
+            session_id: sessionId,
+            code: error.code,
+            message: error.message,
+            stream: true,
+          });
         } else {
-          logger.error("unexpected streaming error", { session_id: sessionId, error: String(error) });
+          logger.error("unexpected streaming error", {
+            session_id: sessionId,
+            error: String(error),
+          });
         }
         // Stream is aborted — client sees connection closed
         return;
@@ -245,8 +251,11 @@ export function createApp(config: AgentConfig, sessionStore?: SessionStore): Hon
 if (!process.env.VITEST) {
   const config = createAgentConfig();
   const port = Number.parseInt(process.env.PORT ?? "8001", 10);
-  console.log(`Fredy Agent initialized — tools: ${config.tools.list().join(", ")}`);
-  serve({ fetch: createApp(config).fetch, port }, () => {
-    console.log(`Fredy Agent API listening on http://0.0.0.0:${port}`);
+  const sessionStoreType = (process.env.SESSION_STORE_TYPE ?? "memory") as "memory" | "redis";
+  const sessionStore = await createSessionStore(sessionStoreType, process.env.REDIS_URL);
+  const startupLogger = config.logger ?? createLogger();
+  startupLogger.info("Fredy Agent initialized", { tools: config.tools.list().join(", ") });
+  serve({ fetch: createApp(config, sessionStore).fetch, port }, () => {
+    startupLogger.info("Fredy Agent API listening", { url: `http://0.0.0.0:${port}` });
   });
 }

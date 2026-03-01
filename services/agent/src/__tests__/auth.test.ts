@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { SignJWT, generateKeyPair, exportJWK, createLocalJWKSet } from "jose";
-import { verifyToken, extractRoleFromClaims, type JwtClaims } from "../auth.js";
-import { resolveRole } from "../rbac.js";
+import { verifyToken, extractRoleFromClaims, type JwtClaims } from "../auth/index.js";
+import { resolveRole } from "../auth/index.js";
 
 // ---------------------------------------------------------------------------
 // Test key setup — generate an RSA key pair once for all tests
@@ -41,7 +41,7 @@ beforeAll(async () => {
 
 async function signToken(
   claims: Record<string, unknown>,
-  options: { expiresIn?: string; issuer?: string; audience?: string } = {}
+  options: { expiresIn?: string; issuer?: string; audience?: string } = {},
 ): Promise<string> {
   const { expiresIn = "1h", issuer = ISSUER, audience = AUDIENCE } = options;
 
@@ -79,7 +79,10 @@ describe("verifyToken", () => {
   });
 
   it("throws for wrong issuer", async () => {
-    const token = await signToken({ sub: "user-3" }, { issuer: "http://wrong-issuer/realms/other" });
+    const token = await signToken(
+      { sub: "user-3" },
+      { issuer: "http://wrong-issuer/realms/other" },
+    );
     await expect(localVerify(token, "", ISSUER, AUDIENCE)).rejects.toThrow();
   });
 
@@ -136,25 +139,25 @@ describe("resolveRole with jwtRole", () => {
 
   it("JWT role takes priority over header", () => {
     const headers = { get: (n: string) => (n === "x-openwebui-user-role" ? "user" : null) };
-    expect(resolveRole(headers, "admin")).toBe("admin");
+    expect(resolveRole(headers, "admin", true)).toBe("admin");
   });
 
   it("JWT role takes priority even when it matches header", () => {
     const headers = { get: (n: string) => (n === "x-openwebui-user-role" ? "admin" : null) };
-    expect(resolveRole(headers, "admin")).toBe("admin");
+    expect(resolveRole(headers, "admin", true)).toBe("admin");
   });
 
-  it("falls back to header when jwtRole is null", () => {
+  it("falls back to header when jwtRole is null and Keycloak is enabled", () => {
     const headers = { get: (n: string) => (n === "x-openwebui-user-role" ? "admin" : null) };
-    expect(resolveRole(headers, null)).toBe("admin");
+    expect(resolveRole(headers, null, true)).toBe("admin");
   });
 
-  it("falls back to header when jwtRole is undefined", () => {
+  it("ignores header when jwtRole is null and Keycloak is not enabled", () => {
     const headers = { get: (n: string) => (n === "x-openwebui-user-role" ? "admin" : null) };
-    expect(resolveRole(headers)).toBe("admin");
+    expect(resolveRole(headers, null, false)).toBe("user");
   });
 
   it("falls back to 'user' when jwtRole is null and no header", () => {
-    expect(resolveRole(noHeaders, null)).toBe("user");
+    expect(resolveRole(noHeaders, null, true)).toBe("user");
   });
 });

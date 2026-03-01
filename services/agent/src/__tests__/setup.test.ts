@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createToolRegistry } from "../setup.js";
 
-const BASE_TOOLS = ["fetch_url", "get_current_time", "calculator", "get_knowledge_base_stats"];
+const BASE_TOOLS = ["fetch_url", "get_knowledge_base_stats"];
 
 describe("createToolRegistry", () => {
   let savedEnv: NodeJS.ProcessEnv;
@@ -14,7 +14,7 @@ describe("createToolRegistry", () => {
     process.env = savedEnv;
   });
 
-  it("registers the three base tools", () => {
+  it("registers the two base tools", () => {
     delete process.env.EMBEDDING_API_KEY;
     const registry = createToolRegistry();
     expect(registry.list()).toEqual(BASE_TOOLS);

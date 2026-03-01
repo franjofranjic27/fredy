@@ -6,7 +6,7 @@ import {
   filterToolsForRole,
   resolveRole,
   buildFilteredRegistry,
-} from "../rbac.js";
+} from "../auth/index.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -50,26 +50,26 @@ describe("parseRoleToolConfig", () => {
 
   it("throws on invalid JSON", () => {
     expect(() => parseRoleToolConfig("{not valid json}")).toThrow(
-      "ROLE_TOOL_CONFIG is not valid JSON"
+      "ROLE_TOOL_CONFIG is not valid JSON",
     );
   });
 
   it("throws when root value is an array", () => {
     expect(() => parseRoleToolConfig(JSON.stringify(["admin"]))).toThrow(
-      "ROLE_TOOL_CONFIG must be a JSON object"
+      "ROLE_TOOL_CONFIG must be a JSON object",
     );
   });
 
   it("throws when a role value is not an array of strings", () => {
-    expect(() =>
-      parseRoleToolConfig(JSON.stringify({ admin: "all" }))
-    ).toThrow('ROLE_TOOL_CONFIG["admin"] must be an array of strings');
+    expect(() => parseRoleToolConfig(JSON.stringify({ admin: "all" }))).toThrow(
+      'ROLE_TOOL_CONFIG["admin"] must be an array of strings',
+    );
   });
 
   it("throws when a role array contains non-strings", () => {
-    expect(() =>
-      parseRoleToolConfig(JSON.stringify({ user: [1, 2] }))
-    ).toThrow('ROLE_TOOL_CONFIG["user"] must be an array of strings');
+    expect(() => parseRoleToolConfig(JSON.stringify({ user: [1, 2] }))).toThrow(
+      'ROLE_TOOL_CONFIG["user"] must be an array of strings',
+    );
   });
 });
 
@@ -106,7 +106,7 @@ describe("filterToolsForRole", () => {
 
   it("returns all tools when role not in config and no 'user' fallback", () => {
     const config = { admin: ["all"] };
-    // Should still return all tools (with a console.warn)
+    // Should still return all tools (with a warn callback)
     expect(filterToolsForRole(allTools, "unknown-role", config)).toEqual(allTools);
   });
 
@@ -131,14 +131,24 @@ describe("resolveRole", () => {
     process.env = originalEnv;
   });
 
-  it("returns role from x-openwebui-user-role header", () => {
+  it("returns role from x-openwebui-user-role header when Keycloak is enabled", () => {
     const headers = { get: (n: string) => (n === "x-openwebui-user-role" ? "admin" : null) };
-    expect(resolveRole(headers)).toBe("admin");
+    expect(resolveRole(headers, null, true)).toBe("admin");
   });
 
-  it("trims whitespace from header value", () => {
+  it("ignores x-openwebui-user-role header when Keycloak is not enabled", () => {
+    const headers = { get: (n: string) => (n === "x-openwebui-user-role" ? "admin" : null) };
+    expect(resolveRole(headers, null, false)).toBe("user");
+  });
+
+  it("ignores x-openwebui-user-role header when keycloakEnabled is omitted", () => {
+    const headers = { get: (n: string) => (n === "x-openwebui-user-role" ? "admin" : null) };
+    expect(resolveRole(headers)).toBe("user");
+  });
+
+  it("trims whitespace from header value when Keycloak is enabled", () => {
     const headers = { get: (n: string) => (n === "x-openwebui-user-role" ? "  admin  " : null) };
-    expect(resolveRole(headers)).toBe("admin");
+    expect(resolveRole(headers, null, true)).toBe("admin");
   });
 
   it("falls back to DEFAULT_ROLE env var when header is absent", () => {
@@ -156,7 +166,7 @@ describe("resolveRole", () => {
   it("ignores empty header and falls back to DEFAULT_ROLE", () => {
     process.env.DEFAULT_ROLE = "viewer";
     const headers = { get: (n: string) => (n === "x-openwebui-user-role" ? "" : null) };
-    expect(resolveRole(headers)).toBe("viewer");
+    expect(resolveRole(headers, null, true)).toBe("viewer");
   });
 });
 
@@ -197,7 +207,11 @@ describe("buildFilteredRegistry", () => {
     const base = makeRegistry("search", "fetch_url", "calc");
     const config = { admin: ["all"], user: ["search"] };
     const filtered = buildFilteredRegistry(base, "admin", config);
-    expect(filtered.list().sort((a, b) => a.localeCompare(b))).toEqual(["calc", "fetch_url", "search"]);
+    expect(filtered.list().sort((a, b) => a.localeCompare(b))).toEqual([
+      "calc",
+      "fetch_url",
+      "search",
+    ]);
   });
 
   it("does not mutate the base registry", () => {

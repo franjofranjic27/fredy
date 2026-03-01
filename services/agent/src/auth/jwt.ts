@@ -21,7 +21,7 @@ export async function verifyToken(
   token: string,
   jwksUrl: string,
   issuer: string,
-  audience: string
+  audience: string,
 ): Promise<JwtClaims> {
   const { payload } = await jwtVerify(token, getJwks(jwksUrl), {
     issuer,

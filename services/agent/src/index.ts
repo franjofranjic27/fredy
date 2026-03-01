@@ -8,8 +8,7 @@ async function main() {
   console.log(`Available tools: ${config.tools.list().join(", ")}`);
   console.log("");
 
-  const userMessage =
-    process.argv[2] ?? "What time is it and what is 42 * 17?";
+  const userMessage = process.argv[2] ?? "What information is available in the knowledge base?";
 
   console.log(`User: ${userMessage}`);
   console.log("");

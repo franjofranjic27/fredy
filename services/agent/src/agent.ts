@@ -1,5 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
 import type { LLMClient, Message, ToolResult, TokenUsage } from "./llm/types.js";
+import { LlmError } from "./llm/types.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import { createLogger } from "./logger.js";
 import type { Logger } from "./logger.js";
@@ -17,7 +17,7 @@ export class AgentError extends Error {
   constructor(
     public readonly code: AgentErrorCode,
     message: string,
-    public readonly cause?: unknown
+    public readonly cause?: unknown,
   ) {
     super(message);
     this.name = "AgentError";
@@ -56,13 +56,11 @@ async function callLlm(
     return result;
   } catch (error) {
     span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
-    if (error instanceof Anthropic.APIError) {
-      if (error.status === 429) {
+    if (error instanceof LlmError) {
+      if (error.code === "RATE_LIMITED") {
         throw new AgentError("RATE_LIMITED", "Rate limit exceeded", error);
       }
-      if (error.status >= 500) {
-        throw new AgentError("API_ERROR", `Anthropic API error: ${error.status}`, error);
-      }
+      throw new AgentError("API_ERROR", error.message, error);
     }
     throw new AgentError("UNKNOWN", String(error), error);
   } finally {
@@ -90,7 +88,10 @@ async function executeToolCalls(
         result = await tools.execute(toolCall.name, toolCall.arguments);
         span.setAttribute("success", true);
         span.setStatus({ code: SpanStatusCode.OK });
-        logger.debug("tool result", { tool: toolCall.name, preview: JSON.stringify(result).slice(0, 200) });
+        logger.debug("tool result", {
+          tool: toolCall.name,
+          preview: JSON.stringify(result).slice(0, 200),
+        });
       } catch (error) {
         isError = true;
         result = { error: error instanceof Error ? error.message : String(error) };
@@ -109,7 +110,7 @@ async function executeToolCalls(
           isError,
         } satisfies ToolResult,
       };
-    })
+    }),
   );
 }
 
@@ -147,7 +148,9 @@ export async function runAgent(
       logger.debug("llm response", {
         stopReason: response.stopReason,
         ...(response.content ? { preview: response.content.slice(0, 100) } : {}),
-        ...(response.usage ? { inputTokens: response.usage.inputTokens, outputTokens: response.usage.outputTokens } : {}),
+        ...(response.usage
+          ? { inputTokens: response.usage.inputTokens, outputTokens: response.usage.outputTokens }
+          : {}),
       });
 
       // If no tool calls, return the final response
@@ -179,7 +182,9 @@ export async function runAgent(
       messages.push({
         role: "user",
         content: results
-          .map(({ toolUsed, toolResult }) => `Tool "${toolUsed.name}" returned: ${toolResult.content}`)
+          .map(
+            ({ toolUsed, toolResult }) => `Tool "${toolUsed.name}" returned: ${toolResult.content}`,
+          )
           .join("\n\n"),
       });
     }

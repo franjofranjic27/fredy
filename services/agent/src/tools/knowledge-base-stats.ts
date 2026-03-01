@@ -36,7 +36,7 @@ interface QdrantScrollResult {
 }
 
 export function createKnowledgeBaseStatsTool(
-  config: KnowledgeBaseStatsConfig
+  config: KnowledgeBaseStatsConfig,
 ): Tool<Record<string, never>, KnowledgeBaseStats> {
   return {
     name: "get_knowledge_base_stats",
@@ -59,8 +59,7 @@ Use this to understand what content is available before searching, or to verify 
             status: "unavailable",
           };
         }
-        const collectionData =
-          (await collectionResponse.json()) as QdrantCollectionInfo;
+        const collectionData = (await collectionResponse.json()) as QdrantCollectionInfo;
         totalChunks = collectionData.result.points_count;
       } catch {
         return {
@@ -106,8 +105,7 @@ Use this to understand what content is available before searching, or to verify 
             break;
           }
 
-          const scrollData =
-            (await scrollResponse.json()) as QdrantScrollResult;
+          const scrollData = (await scrollResponse.json()) as QdrantScrollResult;
 
           for (const point of scrollData.result.points) {
             const key = point.payload.spaceKey ?? "(unknown)";

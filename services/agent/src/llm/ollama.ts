@@ -1,10 +1,4 @@
-import type {
-  LLMClient,
-  LLMResponse,
-  Message,
-  ToolCall,
-  ToolDefinition,
-} from "./types.js";
+import type { LLMClient, LLMResponse, Message, ToolCall, ToolDefinition } from "./types.js";
 
 export interface OllamaClientOptions {
   baseUrl?: string;
@@ -13,11 +7,7 @@ export interface OllamaClientOptions {
 }
 
 export function createOllamaClient(options: OllamaClientOptions): LLMClient {
-  const {
-    baseUrl = "http://localhost:11434",
-    model = "llama3.2",
-    maxTokens = 4096,
-  } = options;
+  const { baseUrl = "http://localhost:11434", model = "llama3.2", maxTokens = 4096 } = options;
 
   return {
     async chat(
@@ -89,6 +79,12 @@ interface OllamaResponse {
   eval_count?: number;
 }
 
+interface StreamAccumulator {
+  fullContent: string;
+  toolCalls: ToolCall[];
+  lastData: OllamaResponse | null;
+}
+
 function parseOllamaResponse(data: OllamaResponse): LLMResponse {
   const msg = data.message;
   const toolCalls: ToolCall[] = (msg.tool_calls ?? []).map((tc, i) => ({
@@ -121,6 +117,30 @@ function mapStopReason(
   return "end_turn";
 }
 
+async function processChunk(
+  chunk: OllamaResponse,
+  acc: StreamAccumulator,
+  onDelta: (delta: string) => Promise<void> | void,
+): Promise<void> {
+  acc.lastData = chunk;
+  if (chunk.message?.content) {
+    acc.fullContent += chunk.message.content;
+    await onDelta(chunk.message.content);
+  }
+  if (chunk.message?.tool_calls) {
+    for (const [i, tc] of chunk.message.tool_calls.entries()) {
+      acc.toolCalls.push({
+        id: `tool-${i}`,
+        name: tc.function.name,
+        arguments:
+          typeof tc.function.arguments === "string"
+            ? (JSON.parse(tc.function.arguments) as Record<string, unknown>)
+            : tc.function.arguments,
+      });
+    }
+  }
+}
+
 async function handleStreaming(
   response: Response,
   onDelta: (delta: string) => Promise<void> | void,
@@ -132,9 +152,7 @@ async function handleStreaming(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let fullContent = "";
-  const toolCalls: ToolCall[] = [];
-  let lastData: OllamaResponse | null = null;
+  const acc: StreamAccumulator = { fullContent: "", toolCalls: [], lastData: null };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -143,38 +161,14 @@ async function handleStreaming(
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
     buffer = lines.pop() ?? "";
-    lines.push(""); // sentinel so remaining buffer gets processed below
-    const toProcess = lines;
 
-    for (const line of toProcess) {
+    for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-
-      let chunk: OllamaResponse;
       try {
-        chunk = JSON.parse(trimmed) as OllamaResponse;
+        await processChunk(JSON.parse(trimmed) as OllamaResponse, acc, onDelta);
       } catch {
         continue;
-      }
-
-      lastData = chunk;
-
-      if (chunk.message?.content) {
-        fullContent += chunk.message.content;
-        await onDelta(chunk.message.content);
-      }
-
-      if (chunk.message?.tool_calls) {
-        for (const [i, tc] of chunk.message.tool_calls.entries()) {
-          toolCalls.push({
-            id: `tool-${i}`,
-            name: tc.function.name,
-            arguments:
-              typeof tc.function.arguments === "string"
-                ? (JSON.parse(tc.function.arguments) as Record<string, unknown>)
-                : tc.function.arguments,
-          });
-        }
       }
     }
   }
@@ -183,38 +177,21 @@ async function handleStreaming(
   const trimmedBuffer = buffer.trim();
   if (trimmedBuffer) {
     try {
-      const chunk = JSON.parse(trimmedBuffer) as OllamaResponse;
-      lastData = chunk;
-      if (chunk.message?.content) {
-        fullContent += chunk.message.content;
-        await onDelta(chunk.message.content);
-      }
-      if (chunk.message?.tool_calls) {
-        for (const [i, tc] of chunk.message.tool_calls.entries()) {
-          toolCalls.push({
-            id: `tool-${i}`,
-            name: tc.function.name,
-            arguments:
-              typeof tc.function.arguments === "string"
-                ? (JSON.parse(tc.function.arguments) as Record<string, unknown>)
-                : tc.function.arguments,
-          });
-        }
-      }
+      await processChunk(JSON.parse(trimmedBuffer) as OllamaResponse, acc, onDelta);
     } catch {
       // ignore malformed trailing data
     }
   }
 
-  const stopReason = mapStopReason(lastData?.done_reason, toolCalls.length > 0);
+  const stopReason = mapStopReason(acc.lastData?.done_reason, acc.toolCalls.length > 0);
 
   return {
-    content: fullContent || null,
-    toolCalls,
+    content: acc.fullContent || null,
+    toolCalls: acc.toolCalls,
     stopReason,
     usage: {
-      inputTokens: lastData?.prompt_eval_count ?? 0,
-      outputTokens: lastData?.eval_count ?? 0,
+      inputTokens: acc.lastData?.prompt_eval_count ?? 0,
+      outputTokens: acc.lastData?.eval_count ?? 0,
     },
   };
 }

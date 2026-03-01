@@ -40,3 +40,16 @@ export interface LLMClient {
     onDelta?: (delta: string) => Promise<void> | void,
   ): Promise<LLMResponse>;
 }
+
+export type LlmErrorCode = "RATE_LIMITED" | "API_ERROR";
+
+export class LlmError extends Error {
+  constructor(
+    public readonly code: LlmErrorCode,
+    message: string,
+    public readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = "LlmError";
+  }
+}
