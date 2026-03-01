@@ -17,6 +17,7 @@ export default defineConfig({
         "src/llm/index.ts",
         "src/tools/index.ts",
         "src/session/index.ts",
+        "src/tracing.ts",
       ],
       reportsDirectory: "./coverage",
     },

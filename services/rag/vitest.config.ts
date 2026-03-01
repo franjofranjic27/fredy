@@ -20,6 +20,7 @@ export default defineConfig({
         "src/qdrant/index.ts",
         "src/local/index.ts",
         "src/embeddings/index.ts",
+        "src/scheduler/cron.ts",
       ],
       reportsDirectory: "./coverage",
     },
