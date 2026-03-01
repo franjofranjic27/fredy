@@ -41,7 +41,7 @@ export function createClaudeClient(options: ClaudeClientOptions): LLMClient {
       }));
 
       try {
-        const params: Anthropic.MessageCreateParamsNonStreaming = {
+        const params = {
           model,
           max_tokens: maxTokens,
           system: systemMessage?.content,

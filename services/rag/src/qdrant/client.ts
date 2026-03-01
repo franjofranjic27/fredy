@@ -1,8 +1,6 @@
 import { QdrantClient as QdrantSDK } from "@qdrant/js-client-rest";
 import type { Chunk, ChunkMetadata } from "../chunking/types.js";
 
-type PageOffset = number | string | null | undefined;
-
 export interface QdrantConfig {
   url: string;
   collectionName: string;
@@ -217,19 +215,20 @@ export class QdrantClient {
   }
 
   private async *scrollAll(payloadFields: string[]): AsyncGenerator<Record<string, unknown>> {
-    let offset: PageOffset = undefined;
+    let offset: number | string | undefined;
     do {
       const response = await this.client.scroll(this.collectionName, {
         limit: 1000,
-        offset: offset ?? undefined,
+        offset,
         with_payload: payloadFields,
         with_vector: false,
       });
       for (const point of response.points) {
         yield point.payload as Record<string, unknown>;
       }
-      offset = response.next_page_offset as PageOffset;
-    } while (offset !== null && offset !== undefined);
+      const next = response.next_page_offset;
+      offset = next === null ? undefined : (next as number | string | undefined);
+    } while (offset !== undefined);
   }
 
   /**

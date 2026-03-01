@@ -1,6 +1,7 @@
 import { trace, type Tracer } from "@opentelemetry/api";
 
 export function createTracing(serviceName: string) {
+  let activeSdk: { start(): void; shutdown?(): Promise<void> } | undefined;
   let sdkStarted = false;
 
   /**
@@ -22,13 +23,13 @@ export function createTracing(serviceName: string) {
     const endpoint =
       process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "http://localhost:4318";
 
-    const sdk = new NodeSDK({
+    activeSdk = new NodeSDK({
       serviceName,
       traceExporter: new OTLPTraceExporter({ url: `${endpoint}/v1/traces` }),
       instrumentations: [getNodeAutoInstrumentations()],
     });
 
-    sdk.start();
+    activeSdk.start();
     sdkStarted = true;
   }
 
@@ -40,8 +41,14 @@ export function createTracing(serviceName: string) {
     return trace.getTracer(serviceName);
   }
 
-  /** Reset internal state (for tests only). */
+  /**
+   * Reset internal state (for tests only).
+   * Shuts down the active SDK instance before resetting to prevent duplicate
+   * spans or resource leaks when tests call initTracing() more than once.
+   */
   function _resetTracing(): void {
+    void activeSdk?.shutdown?.();
+    activeSdk = undefined;
     sdkStarted = false;
   }
 
