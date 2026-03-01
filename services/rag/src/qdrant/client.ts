@@ -34,9 +34,7 @@ export class QdrantClient {
    */
   async initCollection(): Promise<void> {
     const collections = await this.client.getCollections();
-    const exists = collections.collections.some(
-      (c) => c.name === this.collectionName
-    );
+    const exists = collections.collections.some((c) => c.name === this.collectionName);
 
     if (!exists) {
       await this.client.createCollection(this.collectionName, {
@@ -122,7 +120,7 @@ export class QdrantClient {
       spaceKey?: string;
       labels?: string[];
       scoreThreshold?: number;
-    } = {}
+    } = {},
   ): Promise<SearchResult[]> {
     const { limit = 5, spaceKey, labels, scoreThreshold = 0.7 } = options;
 
@@ -197,26 +195,12 @@ export class QdrantClient {
    */
   async countBySpace(): Promise<Record<string, number>> {
     const counts: Record<string, number> = {};
-    let offset: PageOffset = undefined;
-
-    do {
-      const response = await this.client.scroll(this.collectionName, {
-        limit: 1000,
-        offset: offset ?? undefined,
-        with_payload: ["spaceKey"],
-        with_vector: false,
-      });
-
-      for (const point of response.points) {
-        const spaceKey = (point.payload as Record<string, unknown>)?.spaceKey as string | undefined;
-        if (spaceKey) {
-          counts[spaceKey] = (counts[spaceKey] ?? 0) + 1;
-        }
+    for await (const payload of this.scrollAll(["spaceKey"])) {
+      const spaceKey = payload.spaceKey as string | undefined;
+      if (spaceKey) {
+        counts[spaceKey] = (counts[spaceKey] ?? 0) + 1;
       }
-
-      offset = response.next_page_offset as PageOffset;
-    } while (offset !== null && offset !== undefined);
-
+    }
     return counts;
   }
 
@@ -225,27 +209,27 @@ export class QdrantClient {
    */
   async listStoredPageIds(): Promise<string[]> {
     const pageIds = new Set<string>();
-    let offset: PageOffset = undefined;
+    for await (const payload of this.scrollAll(["pageId"])) {
+      const pageId = payload.pageId as string | undefined;
+      if (pageId) pageIds.add(pageId);
+    }
+    return [...pageIds];
+  }
 
+  private async *scrollAll(payloadFields: string[]): AsyncGenerator<Record<string, unknown>> {
+    let offset: PageOffset = undefined;
     do {
       const response = await this.client.scroll(this.collectionName, {
         limit: 1000,
         offset: offset ?? undefined,
-        with_payload: ["pageId"],
+        with_payload: payloadFields,
         with_vector: false,
       });
-
       for (const point of response.points) {
-        const pageId = (point.payload as Record<string, unknown>)?.pageId as string | undefined;
-        if (pageId) {
-          pageIds.add(pageId);
-        }
+        yield point.payload as Record<string, unknown>;
       }
-
       offset = response.next_page_offset as PageOffset;
     } while (offset !== null && offset !== undefined);
-
-    return [...pageIds];
   }
 
   /**

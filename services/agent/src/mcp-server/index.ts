@@ -1,4 +1,4 @@
-import { fileURLToPath } from "url";
+import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -16,9 +16,7 @@ export function createMcpServer(registry: ToolRegistry = createToolRegistry()): 
       continue;
     }
 
-    const shape = tool.inputSchema.shape;
-
-    server.tool(name, tool.description, shape, async (args) => {
+    server.tool(name, tool.description, tool.inputSchema.shape, async (args) => {
       try {
         const result = await registry.execute(name, args);
         return {

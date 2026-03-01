@@ -3,8 +3,13 @@ import { streamSSE } from "hono/streaming";
 import { serve } from "@hono/node-server";
 import { runAgent, AgentError } from "./agent.js";
 import { createAgentConfig } from "./setup.js";
-import { parseRoleToolConfig, resolveRole, buildFilteredRegistry } from "./auth/index.js";
-import { verifyToken, extractRoleFromClaims } from "./auth/index.js";
+import {
+  parseRoleToolConfig,
+  resolveRole,
+  buildFilteredRegistry,
+  verifyToken,
+  extractRoleFromClaims,
+} from "./auth/index.js";
 import {
   ChatCompletionRequestSchema,
   createCompletionResponse,
@@ -12,8 +17,7 @@ import {
 } from "./openai-types.js";
 import type { AgentConfig } from "./agent.js";
 import { createLogger } from "./logger.js";
-import type { SessionStore } from "./session/types.js";
-import type { SessionEntry } from "./session/types.js";
+import type { SessionStore, SessionEntry } from "./session/types.js";
 import { MemorySessionStore } from "./session/memory.js";
 import { createSessionStore } from "./session/index.js";
 import { createRateLimiter } from "./middleware/rate-limit.js";

@@ -41,33 +41,14 @@ export function createClaudeClient(options: ClaudeClientOptions): LLMClient {
       }));
 
       try {
-        let response: Anthropic.Message;
-
-        if (onDelta) {
-          const stream = client.messages.stream({
-            model,
-            max_tokens: maxTokens,
-            system: systemMessage?.content,
-            messages: chatMessages,
-            tools: toolParams,
-          });
-
-          for await (const event of stream) {
-            if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-              await onDelta(event.delta.text);
-            }
-          }
-
-          response = await stream.finalMessage();
-        } else {
-          response = await client.messages.create({
-            model,
-            max_tokens: maxTokens,
-            system: systemMessage?.content,
-            messages: chatMessages,
-            tools: toolParams,
-          });
-        }
+        const params: Anthropic.MessageCreateParamsNonStreaming = {
+          model,
+          max_tokens: maxTokens,
+          system: systemMessage?.content,
+          messages: chatMessages,
+          tools: toolParams,
+        };
+        const response = await callLlm(client, params, onDelta);
 
         const textContent = response.content.find((c) => c.type === "text");
         const toolUseBlocks = response.content.filter(
@@ -98,6 +79,23 @@ export function createClaudeClient(options: ClaudeClientOptions): LLMClient {
       }
     },
   };
+}
+
+async function callLlm(
+  client: Anthropic,
+  params: Anthropic.MessageCreateParamsNonStreaming,
+  onDelta?: (delta: string) => Promise<void> | void,
+): Promise<Anthropic.Message> {
+  if (onDelta) {
+    const stream = client.messages.stream(params);
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+        await onDelta(event.delta.text);
+      }
+    }
+    return stream.finalMessage();
+  }
+  return client.messages.create(params);
 }
 
 function buildMessages(messages: Message[]): Anthropic.MessageParam[] {

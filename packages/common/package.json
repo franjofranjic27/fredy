@@ -1,0 +1,17 @@
+{
+  "name": "@fredy/common",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    "./logger": "./src/logger.ts",
+    "./tracing": "./src/tracing.ts"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0"
+  },
+  "devDependencies": {
+    "@opentelemetry/auto-instrumentations-node": "^0.70.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.212.0",
+    "@opentelemetry/sdk-node": "^0.212.0"
+  }
+}

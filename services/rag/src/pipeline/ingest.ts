@@ -6,6 +6,7 @@ import type { Chunk, ChunkingOptions } from "../chunking/types.js";
 import type { ConfluencePage } from "../confluence/types.js";
 import type { Logger } from "../logger.js";
 import { getTracer } from "../tracing.js";
+import { processChunkBatch } from "./chunk-batch.js";
 import { SpanStatusCode } from "@opentelemetry/api";
 
 export interface IngestOptions {
@@ -46,7 +47,12 @@ async function processPage(
   options: PageProcessOptions,
 ): Promise<void> {
   const { logger } = options;
-  if (!confluence.shouldIncludePage(page, { includeLabels: options.includeLabels, excludeLabels: options.excludeLabels })) {
+  if (
+    !confluence.shouldIncludePage(page, {
+      includeLabels: options.includeLabels,
+      excludeLabels: options.excludeLabels,
+    })
+  ) {
     logger?.debug("Skipping page (label filter)", { title: page.title });
     context.result.pagesSkipped++;
     return;
@@ -63,7 +69,12 @@ async function processPage(
   context.result.chunksCreated += chunks.length;
 
   if (context.chunksBuffer.length >= options.batchSize) {
-    await processChunkBatch(context.chunksBuffer.splice(0, options.batchSize), embedding, qdrant, logger);
+    await processChunkBatch(
+      context.chunksBuffer.splice(0, options.batchSize),
+      embedding,
+      qdrant,
+      logger,
+    );
   }
 }
 
@@ -84,7 +95,11 @@ async function processSpace(
       await processPage(page, confluence, embedding, qdrant, context, pageOptions);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      logger?.error("Failed to process page", { pageId: page.id, title: page.title, error: errorMsg });
+      logger?.error("Failed to process page", {
+        pageId: page.id,
+        title: page.title,
+        error: errorMsg,
+      });
       result.errors.push({ pageId: page.id, error: errorMsg });
     }
   }
@@ -98,16 +113,9 @@ export async function ingestConfluenceToQdrant(
   confluence: ConfluenceClient,
   embedding: EmbeddingClient,
   qdrant: QdrantClient,
-  options: IngestOptions
+  options: IngestOptions,
 ): Promise<IngestResult> {
-  const {
-    spaces,
-    includeLabels,
-    excludeLabels,
-    chunkingOptions,
-    batchSize = 10,
-    logger,
-  } = options;
+  const { spaces, includeLabels, excludeLabels, chunkingOptions, batchSize = 10, logger } = options;
 
   const result: IngestResult = {
     pagesProcessed: 0,
@@ -116,7 +124,13 @@ export async function ingestConfluenceToQdrant(
     errors: [],
   };
 
-  const pageOptions: PageProcessOptions = { includeLabels, excludeLabels, chunkingOptions, batchSize, logger };
+  const pageOptions: PageProcessOptions = {
+    includeLabels,
+    excludeLabels,
+    chunkingOptions,
+    batchSize,
+    logger,
+  };
 
   const tracer = getTracer();
   const span = tracer.startSpan("rag.ingest");
@@ -139,20 +153,4 @@ export async function ingestConfluenceToQdrant(
   }
 
   return result;
-}
-
-async function processChunkBatch(
-  chunks: Chunk[],
-  embedding: EmbeddingClient,
-  qdrant: QdrantClient,
-  logger: Logger | undefined,
-): Promise<void> {
-  logger?.debug("Embedding chunk batch", { count: chunks.length });
-
-  const texts = chunks.map((c) => c.content);
-  const embeddings = await embedding.embed(texts);
-
-  await qdrant.upsertChunks(chunks, embeddings);
-
-  logger?.debug("Stored chunk batch in Qdrant", { count: chunks.length });
 }

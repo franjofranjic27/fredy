@@ -5,6 +5,7 @@ import type { QdrantClient } from "../qdrant/index.js";
 import { chunkHtmlContent } from "../chunking/index.js";
 import type { Chunk, ChunkingOptions } from "../chunking/types.js";
 import type { Logger } from "../logger.js";
+import { processChunkBatch } from "./chunk-batch.js";
 
 export interface IngestLocalOptions {
   chunkingOptions: ChunkingOptions;
@@ -22,7 +23,7 @@ export async function ingestLocalFiles(
   localFiles: LocalFileClient,
   embedding: EmbeddingClient,
   qdrant: QdrantClient,
-  options: IngestLocalOptions
+  options: IngestLocalOptions,
 ): Promise<IngestLocalResult> {
   const { chunkingOptions, batchSize = 10, logger } = options;
 
@@ -68,20 +69,4 @@ export async function ingestLocalFiles(
   }
 
   return result;
-}
-
-async function processChunkBatch(
-  chunks: Chunk[],
-  embedding: EmbeddingClient,
-  qdrant: QdrantClient,
-  logger: Logger | undefined,
-): Promise<void> {
-  logger?.debug("Embedding chunk batch", { count: chunks.length });
-
-  const texts = chunks.map((c) => c.content);
-  const embeddings = await embedding.embed(texts);
-
-  await qdrant.upsertChunks(chunks, embeddings);
-
-  logger?.debug("Stored chunk batch in Qdrant", { count: chunks.length });
 }
