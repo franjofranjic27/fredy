@@ -124,7 +124,7 @@ services:
       - ./data/rag-files:/data/files:ro
 
   agent:
-    build: ./services/agent
+    build: ./agents/react
     container_name: fredy-agent
     restart: unless-stopped
     env_file:

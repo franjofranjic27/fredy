@@ -1,0 +1,114 @@
+import { ToolRegistry } from "@fredy/tools/registry";
+
+export type RoleToolConfig = Record<string, string[]>;
+
+/**
+ * Parse ROLE_TOOL_CONFIG env var once at startup.
+ * Returns null when unconfigured (backward-compat: no RBAC).
+ * Throws on invalid JSON or wrong shape.
+ */
+export function parseRoleToolConfig(raw: string | undefined): RoleToolConfig | null {
+  if (raw === undefined || raw.trim() === "") return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`ROLE_TOOL_CONFIG is not valid JSON: ${raw}`);
+  }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("ROLE_TOOL_CONFIG must be a JSON object mapping role names to string arrays");
+  }
+
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!Array.isArray(value) || !value.every((v) => typeof v === "string")) {
+      throw new Error(`ROLE_TOOL_CONFIG["${key}"] must be an array of strings`);
+    }
+  }
+
+  return parsed as RoleToolConfig;
+}
+
+/**
+ * Filter tool names based on role and config.
+ * - config null  → all tools (no RBAC configured)
+ * - config[role] contains "all" → all tools
+ * - config[role] defined → only those names
+ * - role not in config → fallback to config["user"] → fallback to all tools + warning
+ */
+export function filterToolsForRole(
+  allToolNames: string[],
+  role: string,
+  config: RoleToolConfig | null,
+  warn?: (msg: string) => void,
+): string[] {
+  if (config === null) return allToolNames;
+
+  if (role in config) {
+    const allowed = config[role];
+    if (allowed.includes("all")) return allToolNames;
+    return allToolNames.filter((name) => allowed.includes(name));
+  }
+
+  // Role not explicitly configured — fall back to "user" entry
+  if ("user" in config) {
+    const userAllowed = config["user"];
+    if (userAllowed.includes("all")) return allToolNames;
+    return allToolNames.filter((name) => userAllowed.includes(name));
+  }
+
+  // No fallback available — log warning and allow all
+  const msg = `[rbac] Role "${role}" not found in ROLE_TOOL_CONFIG and no "user" fallback — allowing all tools`;
+  (warn ?? console.warn)(msg);
+  return allToolNames;
+}
+
+/**
+ * Resolve the effective role for a request.
+ * Priority: jwtRole (signature-verified) → x-openwebui-user-role header (only when
+ * Keycloak is active) → DEFAULT_ROLE env var → "user"
+ *
+ * The x-openwebui-user-role header is trusted only when keycloakEnabled is true.
+ * Without Keycloak, the header is unauthenticated and trivially spoofable, so it
+ * is ignored and the fallback chain continues to DEFAULT_ROLE / "user".
+ */
+export function resolveRole(
+  headers: { get(name: string): string | null | undefined },
+  jwtRole?: string | null,
+  keycloakEnabled?: boolean,
+): string {
+  // JWT claim has highest priority — it is signature-verified and cannot be forged
+  if (jwtRole && jwtRole.trim() !== "") return jwtRole.trim();
+
+  // Trust the Open-WebUI role header only when Keycloak is validating JWTs.
+  // In dev/no-Keycloak mode any caller can spoof this header.
+  if (keycloakEnabled) {
+    const fromHeader = headers.get("x-openwebui-user-role");
+    if (fromHeader && fromHeader.trim() !== "") return fromHeader.trim();
+  }
+
+  const fromEnv = process.env.DEFAULT_ROLE;
+  if (fromEnv && fromEnv.trim() !== "") return fromEnv.trim();
+
+  return "user";
+}
+
+/**
+ * Build a new ToolRegistry containing only the tools allowed for the given role.
+ * Uses only public ToolRegistry API: list(), get(), register().
+ */
+export function buildFilteredRegistry(
+  base: ToolRegistry,
+  role: string,
+  config: RoleToolConfig | null,
+  warn?: (msg: string) => void,
+): ToolRegistry {
+  const allowed = new Set(filterToolsForRole(base.list(), role, config, warn));
+  const filtered = new ToolRegistry();
+  for (const name of allowed) {
+    const tool = base.get(name);
+    if (tool) filtered.register(tool);
+  }
+  return filtered;
+}

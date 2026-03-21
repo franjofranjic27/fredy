@@ -1,3 +1,3 @@
-import { createTracing } from "@fredy/common/tracing";
+import { createTracing } from "@fredy/observability/tracing";
 
 export const { initTracing, getTracer, _resetTracing } = createTracing("fredy-rag");

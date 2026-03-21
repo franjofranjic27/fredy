@@ -17,14 +17,33 @@ An intelligent agent with access to organizational knowledge (Confluence, docume
 
 ## Repository Structure
 
-Monorepo containing multiple services, designed for potential future splitting:
+Monorepo containing agents, shared libraries, and infrastructure services:
 
 ```
-/services          # Individual services (agents, MCP servers)
-/packages          # Shared libraries and utilities
+/agents            # Agent implementations (each is a standalone pnpm package)
+  /react           # @fredy/agent-react — ReAct IT Ops agent (HTTP + MCP server)
+  /rag             # @fredy/agent-rag   — RAG-focused agent (placeholder)
+
+/shared            # Cross-agent shared libraries (pnpm packages)
+  /llm             # @fredy/llm         — LLM clients (Claude, Ollama) + types
+  /memory          # @fredy/memory      — Session/conversation memory (in-memory, Redis)
+  /tools           # @fredy/tools       — Tool interface, ToolRegistry base
+  /observability   # @fredy/observability — Logger + OpenTelemetry tracing
+
+/services          # Infrastructure services (not agents)
+  /rag             # @fredy/rag         — RAG ingestion pipeline (Confluence, local files)
+
 /infrastructure    # Docker, deployment configs
-/prompts           # LLM implementation guides and prompts
+/docs              # Architecture docs and migration plans
+/config            # LiteLLM and other service configs
 ```
+
+### Adding a New Agent
+
+1. Create `agents/<name>/` with `package.json`, `tsconfig.json`, `src/`
+2. Add shared deps: `@fredy/llm`, `@fredy/memory`, `@fredy/tools`, `@fredy/observability`
+3. Implement your agent loop in `src/agent.ts`
+4. The pnpm workspace picks it up automatically (`agents/*` glob)
 
 **Languages & Build Tools:**
 - TypeScript projects: pnpm
@@ -85,9 +104,13 @@ All commits in this repository MUST follow this format:
 **Types:** `feat`, `fix`, `refactor`, `docs`, `chore`, `test`, `ci`, `build`
 
 **Scopes** (use the most specific one that applies):
-- `rag` — RAG pipeline service (`services/rag/`)
-- `agent` — AI agent service (`services/agent/`)
+- `rag` — RAG ingestion service (`services/rag/`)
+- `agent` — ReAct agent (`agents/react/`) or cross-agent changes
 - `mcp` — MCP servers (`services/mcp-*`)
+- `llm` — LLM shared package (`shared/llm/`)
+- `memory` — Memory shared package (`shared/memory/`)
+- `tools` — Tools shared package (`shared/tools/`)
+- `observability` — Observability shared package (`shared/observability/`)
 - `infra` — Docker, docker-compose, deployment configs
 - `config` — Environment, build, or project-level config
 - Omit scope for cross-cutting changes

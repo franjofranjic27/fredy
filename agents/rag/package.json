@@ -1,0 +1,29 @@
+{
+  "name": "@fredy/agent-rag",
+  "version": "0.1.0",
+  "description": "Fredy RAG Agent - retrieval-augmented generation focused agent",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --env-file=../../.env src/index.ts",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "rag",
+    "claude"
+  ],
+  "dependencies": {
+    "@fredy/llm": "workspace:*",
+    "@fredy/memory": "workspace:*",
+    "@fredy/tools": "workspace:*",
+    "@fredy/observability": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}
