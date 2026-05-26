@@ -1,23 +1,31 @@
-# Stage 1: Install dependencies
+# Workspace-aware multi-stage build for @fredy/rag.
+# Build context MUST be the repo root (see docker-compose.yml).
+
+# Stage 1: install all workspace deps
 FROM node:22-alpine AS deps
-WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@latest --activate
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+WORKDIR /repo
+RUN corepack enable && corepack prepare pnpm@10.28.2 --activate
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+COPY packages/common/package.json ./packages/common/
+COPY services/agent/package.json ./services/agent/
+COPY services/rag/package.json ./services/rag/
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
-# Stage 2: Build TypeScript
+# Stage 2: build common + rag
 FROM deps AS build
-COPY tsconfig.json ./
-COPY src/ ./src/
-RUN pnpm run build
+COPY packages/common ./packages/common
+COPY services/rag ./services/rag
+RUN pnpm --filter @fredy/common build \
+ && pnpm --filter @fredy/rag build
 
-# Stage 3: Production runtime
+# Stage 3: produce a self-contained production bundle via pnpm deploy
+FROM build AS deploy
+RUN pnpm --filter @fredy/rag --prod --legacy --ignore-scripts deploy /app
+
+# Stage 4: minimal runtime image
 FROM node:22-alpine AS runtime
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@latest --activate
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --prod
-COPY --from=build /app/dist ./dist
-
+ENV NODE_ENV=production
+COPY --from=deploy /app /app
 ENTRYPOINT ["node", "dist/index.js"]
 CMD ["daemon"]
