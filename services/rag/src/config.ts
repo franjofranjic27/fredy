@@ -1,15 +1,26 @@
 import { z } from "zod";
+import { validateConfluenceBaseUrl } from "./confluence/url-validator.js";
 
 const ConfigSchema = z.object({
   // Confluence settings (optional — can run with only local files)
-  confluence: z.object({
-    baseUrl: z.string().url(),
-    username: z.string(),
-    apiToken: z.string(),
-    spaces: z.array(z.string()).min(1),
-    includeLabels: z.array(z.string()).optional(),
-    excludeLabels: z.array(z.string()).default(["ignore", "draft", "archived"]),
-  }).optional(),
+  confluence: z
+    .object({
+      baseUrl: z
+        .string()
+        .url()
+        .superRefine((url, ctx) => {
+          const result = validateConfluenceBaseUrl(url);
+          for (const message of result.errors) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+          }
+        }),
+      username: z.string(),
+      apiToken: z.string(),
+      spaces: z.array(z.string()).min(1),
+      includeLabels: z.array(z.string()).optional(),
+      excludeLabels: z.array(z.string()).default(["ignore", "draft", "archived"]),
+    })
+    .optional(),
 
   // Embedding settings
   embedding: z.object({

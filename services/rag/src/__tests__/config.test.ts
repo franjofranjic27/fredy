@@ -180,6 +180,22 @@ describe("loadConfig", () => {
     expect(loadConfig().confluence!.excludeLabels).toEqual(["private", "secret"]);
   });
 
+  it("rejects Atlassian Cloud URL without /wiki", () => {
+    process.env.CONFLUENCE_BASE_URL = "https://company.atlassian.net";
+    process.env.CONFLUENCE_USERNAME = "u";
+    process.env.CONFLUENCE_API_TOKEN = "t";
+    process.env.CONFLUENCE_SPACES = "IT";
+    expect(() => loadConfig()).toThrow(/must end in.*wiki/);
+  });
+
+  it("rejects CONFLUENCE_BASE_URL that contains a space path", () => {
+    process.env.CONFLUENCE_BASE_URL = "https://company.atlassian.net/wiki/spaces/IT";
+    process.env.CONFLUENCE_USERNAME = "u";
+    process.env.CONFLUENCE_API_TOKEN = "t";
+    process.env.CONFLUENCE_SPACES = "IT";
+    expect(() => loadConfig()).toThrow(/Confluence root/);
+  });
+
   it("throws when EMBEDDING_PROVIDER is missing", () => {
     delete process.env.EMBEDDING_PROVIDER;
     expect(() => loadConfig()).toThrow();
