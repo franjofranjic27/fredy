@@ -31,7 +31,8 @@ export class RbacService {
 
   /**
    * Decide which role applies to the current request.
-   * Priority: explicit X-Role header (always honoured for dev/test),
+   * Priority: explicit X-Role header (dev/test override),
+   * then OpenWebUI's forwarded X-OpenWebUI-User-Role header,
    * then JWT role, then "default".
    */
   resolveRole(
@@ -41,6 +42,8 @@ export class RbacService {
   ): string {
     const headerRole = headers.get("x-role");
     if (headerRole && headerRole.trim()) return headerRole.trim();
+    const openWebUiRole = headers.get("x-openwebui-user-role");
+    if (openWebUiRole && openWebUiRole.trim()) return openWebUiRole.trim();
     if (keycloakEnabled && jwtRole) return jwtRole;
     return DEFAULT_ROLE;
   }

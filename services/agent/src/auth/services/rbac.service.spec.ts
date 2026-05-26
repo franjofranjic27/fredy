@@ -58,6 +58,22 @@ describe("RbacService", () => {
     it("ignores whitespace-only header values", () => {
       expect(svc.resolveRole(headers({ "x-role": "   " }), "user", true)).toBe("user");
     });
+
+    it("accepts OpenWebUI's forwarded x-openwebui-user-role header", () => {
+      expect(svc.resolveRole(headers({ "x-openwebui-user-role": "admin" }), null, false)).toBe(
+        "admin",
+      );
+    });
+
+    it("prefers x-role over x-openwebui-user-role when both are present", () => {
+      expect(
+        svc.resolveRole(
+          headers({ "x-role": "admin", "x-openwebui-user-role": "user" }),
+          null,
+          false,
+        ),
+      ).toBe("admin");
+    });
   });
 
   describe("filterToolsForRole", () => {
