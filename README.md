@@ -8,11 +8,13 @@ An AI Agent platform for exploring and implementing generative AI best practices
 
 | Service | URL | Description |
 |---------|-----|-------------|
-| Open-WebUI | http://localhost:3000 | Chat interface (connected to LiteLLM + Qdrant) |
-| LiteLLM | http://localhost:4000 | OpenAI-compatible proxy routing to Claude |
-| Ollama | http://localhost:11434 | Local LLM runtime |
-| Qdrant | http://localhost:6333 | Vector database for RAG |
+| Open-WebUI | http://localhost:3000 | Chat interface — talks to the Fredy agent |
+| Fredy Agent | http://localhost:8001 | OpenAI-compatible RAG agent (single model: `rag-agent`) |
+| Ollama | http://localhost:11434 | Local LLM runtime (optional, used by the agent) |
+| Qdrant | http://localhost:6333 | Vector database |
 | Confluence Importer | — | Background sync: Confluence / local files → Qdrant |
+| Keycloak | http://localhost:8080 | OAuth provider for Open-WebUI |
+| Jaeger | http://localhost:16686 | OpenTelemetry trace viewer |
 
 ## Prerequisites
 
@@ -41,14 +43,13 @@ docker compose up -d
 
 ### 3. Open the UI
 
-Navigate to **http://localhost:3000** and start chatting. The LiteLLM proxy exposes the following Claude models:
+Navigate to **http://localhost:3000** and start chatting. Open-WebUI is wired to the Fredy agent service, so the model dropdown lists exactly one entry:
 
-| Model name in UI | Underlying model |
-|------------------|-----------------|
-| `claude-sonnet` | claude-sonnet-4 |
-| `claude-3.5-sonnet` | claude-3-5-sonnet |
-| `claude-haiku` | claude-3-5-haiku |
-| `claude-opus` | claude-opus-4 |
+| Model in UI | What it does |
+|---|---|
+| `rag-agent` | Deterministic RAG agent — every answer is grounded in Confluence content stored in Qdrant. Picks its own LLM provider internally via `LLM_FALLBACK_MODEL`. |
+
+New agents added under `services/agent/src/agents/` (e.g. a future `react-agent`) automatically show up here.
 
 ## Confluence Importer (optional)
 
@@ -96,13 +97,13 @@ docker compose pull               # Pull latest images
 ```
 services/              # Individual services
   confluence-importer/ # Confluence → Qdrant ingestion (TypeScript)
-  agent/               # AI agent (TypeScript)
-config/                # Service configuration files
-  litellm.yaml         # LiteLLM model routing config
+  agent/               # AI agent (TypeScript, NestJS)
+packages/              # Shared workspace libraries
+  common/              # Logger + OTel tracing helpers
 data/
   confluence-files/    # Mount local files for ingestion
-prompts/         # Implementation guides
-infrastructure/  # Additional deployment configs
+prompts/               # Implementation guides
+infrastructure/        # Additional deployment configs (Keycloak realm, etc.)
 ```
 
 ## Security Note
