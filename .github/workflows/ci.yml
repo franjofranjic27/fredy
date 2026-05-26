@@ -18,30 +18,25 @@ jobs:
         with:
           node-version: "22"
           cache: "pnpm"
-          cache-dependency-path: |
-            services/agent/pnpm-lock.yaml
-            services/rag/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
-      - name: Install agent dependencies
-        run: cd services/agent && pnpm install
-
-      - name: Install RAG dependencies
-        run: cd services/rag && pnpm install
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Typecheck agent
         run: cd services/agent && pnpm exec tsc --noEmit
 
-      - name: Typecheck RAG
-        run: cd services/rag && pnpm exec tsc --noEmit
+      - name: Typecheck confluence-importer
+        run: cd services/confluence-importer && pnpm exec tsc --noEmit
 
       - name: Lint agent
         run: cd services/agent && pnpm lint
 
-      - name: Lint RAG
-        run: cd services/rag && pnpm lint
+      - name: Lint confluence-importer
+        run: cd services/confluence-importer && pnpm lint
 
       - name: Test agent
-        run: cd services/agent && pnpm test:run
+        run: cd services/agent && pnpm test
 
-      - name: Test RAG
-        run: cd services/rag && pnpm test:run
+      - name: Test confluence-importer
+        run: cd services/confluence-importer && pnpm test:run

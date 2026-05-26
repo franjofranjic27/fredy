@@ -85,7 +85,7 @@ All commits in this repository MUST follow this format:
 **Types:** `feat`, `fix`, `refactor`, `docs`, `chore`, `test`, `ci`, `build`
 
 **Scopes** (use the most specific one that applies):
-- `rag` — RAG pipeline service (`services/rag/`)
+- `confluence-importer` — Confluence → Qdrant ingestion service (`services/confluence-importer/`)
 - `agent` — AI agent service (`services/agent/`)
 - `mcp` — MCP servers (`services/mcp-*`)
 - `infra` — Docker, docker-compose, deployment configs
@@ -100,17 +100,17 @@ All commits in this repository MUST follow this format:
 
 **Examples:**
 ```
-feat(rag): add local file ingestion source
+feat(confluence-importer): add local file ingestion source
 
 Support .md/.txt/.html files from a mounted directory alongside
-Confluence as a RAG source. Reuses existing chunking pipeline by
+Confluence as a source. Reuses existing chunking pipeline by
 converting local files to HTML first.
 ```
 ```
 fix(agent): handle empty API response in tool executor
 ```
 ```
-chore(infra): add rag service to docker-compose stack
+chore(infra): add confluence-importer service to docker-compose stack
 ```
 
 ## Security Note

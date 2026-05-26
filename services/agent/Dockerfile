@@ -8,7 +8,7 @@ RUN corepack enable && corepack prepare pnpm@10.28.2 --activate
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY packages/common/package.json ./packages/common/
 COPY services/agent/package.json ./services/agent/
-COPY services/rag/package.json ./services/rag/
+COPY services/confluence-importer/package.json ./services/confluence-importer/
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
 # Stage 2: build common + agent

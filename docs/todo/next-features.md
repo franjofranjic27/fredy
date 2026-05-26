@@ -12,7 +12,7 @@ This document describes planned features for the Fredy AI Agent platform. Featur
 
 **Why:** It's currently impossible to know if a change to chunk size, overlap, or embedding model improves or degrades retrieval quality. An evaluation dataset makes this measurable.
 
-**Scope:** A script `services/rag/src/eval/` that runs a query set, compares retrieved chunks against expected sources, and outputs a quality score. Golden dataset stored in `data/eval/`.
+**Scope:** A script `services/confluence-importer/src/eval/` that runs a query set, compares retrieved chunks against expected sources, and outputs a quality score. Golden dataset stored in `data/eval/`.
 
 ---
 

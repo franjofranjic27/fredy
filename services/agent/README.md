@@ -341,4 +341,4 @@ Tests are co-located with the source as `*.spec.ts`. The e2e suite under `src/e2
 
 - The `QueryRewriteService` uses simple punctuation-based expansion. An LLM-driven rewrite (a separate provider call before retrieval) is out of scope for the current architecture but plugs in cleanly under the same interface.
 - Mistral is intentionally not yet wired into the registry. Adding it means a new `shared/llm/mistral/` directory implementing `LlmClient` plus an entry in `LlmModule`'s factory.
-- The `fetch_url` tool truncates large pages to ~4000 characters and does not strip HTML. Use it for short content; for long documents, ingest them into Qdrant via `services/rag` instead.
+- The `fetch_url` tool truncates large pages to ~4000 characters and does not strip HTML. Use it for short content; for long documents, ingest them into Qdrant via `services/confluence-importer` instead.

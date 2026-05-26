@@ -90,11 +90,11 @@ services:
       - "16686:16686"
       - "4318:4318"
 
-  rag:
+  confluence-importer:
     build:
       context: .
-      dockerfile: services/rag/Dockerfile
-    container_name: rag
+      dockerfile: services/confluence-importer/Dockerfile
+    container_name: confluence-importer
     restart: unless-stopped
     env_file:
       - .env
@@ -123,7 +123,7 @@ services:
       OTEL_ENABLED: "${OTEL_ENABLED:-false}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}"
     volumes:
-      - ./data/rag-files:/data/files:ro
+      - ./data/confluence-files:/data/files:ro
 
   agent:
     build:

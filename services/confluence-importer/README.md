@@ -1,6 +1,6 @@
-# Fredy RAG Service
+# Fredy Confluence Importer
 
-Confluence pages and local files → chunked, embedded, stored in Qdrant for semantic search.
+Confluence pages and local files → chunked, embedded, stored in Qdrant for semantic search by the agent service.
 
 ## Architecture
 

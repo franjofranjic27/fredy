@@ -1,4 +1,4 @@
-# RAG Service — Architektur
+# Confluence Importer — Architektur
 
 ## Datenquellen
 

@@ -34,10 +34,10 @@ logs/
 out/
 build/
 
-# RAG local files (keep placeholder)
-data/rag-files/*
-!data/rag-files/.gitkeep
+# Confluence importer local files (keep placeholder)
+data/confluence-files/*
+!data/confluence-files/.gitkeep
 
 # Test coverage
 services/agent/coverage/
-services/rag/coverage/
+services/confluence-importer/coverage/

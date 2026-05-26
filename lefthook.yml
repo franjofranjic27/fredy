@@ -8,15 +8,15 @@ pre-commit:
   commands:
     typecheck-agent:
       run: cd services/agent && pnpm exec tsc --noEmit
-    typecheck-rag:
-      run: cd services/rag && pnpm exec tsc --noEmit
+    typecheck-confluence-importer:
+      run: cd services/confluence-importer && pnpm exec tsc --noEmit
     lint-agent:
       run: cd services/agent && pnpm lint
-    lint-rag:
-      run: cd services/rag && pnpm lint
+    lint-confluence-importer:
+      run: cd services/confluence-importer && pnpm lint
     test-agent:
       run: cd services/agent && pnpm test
-    # test-rag:                        # enable after Todo 4 (services/rag/todos/04-tests-vitest.md)
-    #   run: cd services/rag && pnpm test:run
+    # test-confluence-importer:        # enable after Todo 4 (services/confluence-importer/todos/04-tests-vitest.md)
+    #   run: cd services/confluence-importer && pnpm test:run
     check-secrets:
       run: bash scripts/check-secrets.sh

@@ -12,7 +12,7 @@ An AI Agent platform for exploring and implementing generative AI best practices
 | LiteLLM | http://localhost:4000 | OpenAI-compatible proxy routing to Claude |
 | Ollama | http://localhost:11434 | Local LLM runtime |
 | Qdrant | http://localhost:6333 | Vector database for RAG |
-| RAG service | — | Background sync: Confluence / local files → Qdrant |
+| Confluence Importer | — | Background sync: Confluence / local files → Qdrant |
 
 ## Prerequisites
 
@@ -50,9 +50,9 @@ Navigate to **http://localhost:3000** and start chatting. The LiteLLM proxy expo
 | `claude-haiku` | claude-3-5-haiku |
 | `claude-opus` | claude-opus-4 |
 
-## RAG Service (optional)
+## Confluence Importer (optional)
 
-The `rag` container syncs documents into Qdrant so Open-WebUI can search them.
+The `confluence-importer` container syncs documents into Qdrant so Open-WebUI can search them.
 
 ### Confluence ingestion
 
@@ -69,13 +69,13 @@ EMBEDDING_API_KEY=sk-...
 
 ### Local file ingestion
 
-Place `.md`, `.txt`, or `.html` files in `data/rag-files/` and enable the feature:
+Place `.md`, `.txt`, or `.html` files in `data/confluence-files/` and enable the feature:
 
 ```env
 LOCAL_FILES_ENABLED=true
 ```
 
-The RAG service syncs every 6 hours by default (`SYNC_CRON=0 */6 * * *`). To trigger a full sync on startup:
+The importer syncs every 6 hours by default (`SYNC_CRON=0 */6 * * *`). To trigger a full sync on startup:
 
 ```env
 SYNC_FULL_ON_START=true
@@ -86,7 +86,7 @@ SYNC_FULL_ON_START=true
 ```bash
 docker compose up -d              # Start all services in background
 docker compose down               # Stop all services
-docker compose logs -f rag        # Stream logs for the RAG service
+docker compose logs -f confluence-importer  # Stream logs for the importer
 docker compose restart openwebui  # Restart a single service
 docker compose pull               # Pull latest images
 ```
@@ -94,13 +94,13 @@ docker compose pull               # Pull latest images
 ## Repository Structure
 
 ```
-services/        # Individual services
-  rag/           # RAG pipeline (TypeScript)
-  agent/         # AI agent (TypeScript, planned)
-config/          # Service configuration files
-  litellm.yaml   # LiteLLM model routing config
+services/              # Individual services
+  confluence-importer/ # Confluence → Qdrant ingestion (TypeScript)
+  agent/               # AI agent (TypeScript)
+config/                # Service configuration files
+  litellm.yaml         # LiteLLM model routing config
 data/
-  rag-files/     # Mount local files for RAG ingestion
+  confluence-files/    # Mount local files for ingestion
 prompts/         # Implementation guides
 infrastructure/  # Additional deployment configs
 ```
