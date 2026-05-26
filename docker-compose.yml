@@ -91,7 +91,9 @@ services:
       - "4318:4318"
 
   rag:
-    build: ./services/rag
+    build:
+      context: .
+      dockerfile: services/rag/Dockerfile
     container_name: rag
     restart: unless-stopped
     env_file:
@@ -124,7 +126,9 @@ services:
       - ./data/rag-files:/data/files:ro
 
   agent:
-    build: ./services/agent
+    build:
+      context: .
+      dockerfile: services/agent/Dockerfile
     container_name: fredy-agent
     restart: unless-stopped
     env_file:
@@ -134,27 +138,31 @@ services:
     ports:
       - "8001:8001"
     environment:
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
-      LLM_PROVIDER: "${LLM_PROVIDER:-claude}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      LLM_FALLBACK_MODEL: "${LLM_FALLBACK_MODEL:-claude-sonnet-4-5-20250929}"
       OLLAMA_BASE_URL: "http://ollama:11434"
       OLLAMA_MODEL: "${OLLAMA_MODEL:-llama3.2}"
-      EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER}"
-      EMBEDDING_API_KEY: "${EMBEDDING_API_KEY}"
+      EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-openai}"
+      EMBEDDING_API_KEY: "${EMBEDDING_API_KEY:-}"
       EMBEDDING_MODEL: "${EMBEDDING_MODEL:-text-embedding-3-small}"
       QDRANT_URL: "http://qdrant:6333"
       QDRANT_COLLECTION: "${QDRANT_COLLECTION:-confluence-pages}"
       PORT: "8001"
-      VERBOSE: "${VERBOSE:-true}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
       ROLE_TOOL_CONFIG: >-
-        {"admin":["all"],"user":["search_knowledge_base","get_current_time","calculator"]}
-      DEFAULT_ROLE: "user"
-      AGENT_API_KEY: "${AGENT_API_KEY}"
-      SESSION_STORE: "${SESSION_STORE:-memory}"
-      REDIS_URL: "${REDIS_URL:-redis://localhost:6379}"
+        {"admin":["vector_search","fetch_url","get_knowledge_base_stats"],"user":["vector_search","get_knowledge_base_stats"]}
+      AGENT_API_KEY: "${AGENT_API_KEY:-}"
+      KEYCLOAK_JWKS_URL: "${KEYCLOAK_JWKS_URL:-}"
+      KEYCLOAK_ISSUER: "${KEYCLOAK_ISSUER:-}"
+      KEYCLOAK_AUDIENCE: "${KEYCLOAK_AUDIENCE:-fredy-agent}"
+      SESSION_STORE_TYPE: "${SESSION_STORE_TYPE:-memory}"
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
       RATE_LIMIT_RPM: "${RATE_LIMIT_RPM:-60}"
       RATE_LIMIT_BURST: "${RATE_LIMIT_BURST:-10}"
-      OTEL_ENABLED: "${OTEL_ENABLED:-false}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}"
+      OTEL_GENAI_CAPTURE_CONTENT: "${OTEL_GENAI_CAPTURE_CONTENT:-false}"
 
 #  postgres:
 #    image: pgvector/pgvector:pg17
