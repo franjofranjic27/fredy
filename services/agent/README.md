@@ -93,7 +93,7 @@ If `vector_search` is unavailable (tool not registered, or denied by RBAC), the 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | Liveness — `{"status":"ok"}` |
-| `GET` | `/v1/models` | Lists `fredy-it-agent` plus every model the LLM registry knows |
+| `GET` | `/v1/models` | Lists exactly one entry per registered agent (today: `rag-agent`) |
 | `POST` | `/v1/chat/completions` | OpenAI-shaped chat endpoint; supports `stream: true` over SSE |
 
 The chat endpoint accepts an optional `x-session-id` header to resume a conversation. If omitted, a new session id is generated and returned in the response header.

@@ -1,15 +1,15 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { Request, Response } from "express";
-import { RagAgentService } from "../../agents/rag-agent/rag-agent.service";
-import { LlmRegistryService } from "../../shared/llm/llm-registry.service";
+import { AgentRegistryService } from "../../shared/agents/agent-registry.service";
+import { Agent } from "../../shared/agents/agent.interface";
 import { LlmStreamChunk } from "../../shared/llm/llm.types";
 import {
   ChatCompletionRequestSchema,
   createCompletionChunk,
   createCompletionResponse,
 } from "../../shared/openai/openai-types";
-import { AGENT_MODEL_ID, ResolvedChatRequest } from "./web.types";
+import { ResolvedChatRequest } from "./web.types";
 
 interface RbacRequest extends Request {
   allowedToolNames?: string[];
@@ -20,33 +20,21 @@ interface RbacRequest extends Request {
 export class WebService {
   private readonly logger = new Logger(WebService.name);
 
-  constructor(
-    private readonly ragAgent: RagAgentService,
-    private readonly llmRegistry: LlmRegistryService,
-  ) {}
+  constructor(private readonly agents: AgentRegistryService) {}
 
-  async listModels(): Promise<{
+  listModels(): {
     object: "list";
     data: Array<{ id: string; object: "model"; created: number; owned_by: string }>;
-  }> {
-    const providerModels = await this.llmRegistry.listAllModels();
+  } {
     const created = Math.floor(Date.now() / 1000);
     return {
       object: "list",
-      data: [
-        {
-          id: AGENT_MODEL_ID,
-          object: "model" as const,
-          created,
-          owned_by: "fredy",
-        },
-        ...providerModels.map((m) => ({
-          id: m.id,
-          object: m.object,
-          created,
-          owned_by: m.owned_by,
-        })),
-      ],
+      data: this.agents.list().map((a) => ({
+        id: a.descriptor.id,
+        object: "model" as const,
+        created,
+        owned_by: a.descriptor.ownedBy ?? "fredy",
+      })),
     };
   }
 
@@ -54,22 +42,32 @@ export class WebService {
     const resolved = this.resolve(req, body, res);
     if (!resolved) return;
 
+    const agent = this.agents.get(resolved.model);
+    if (!agent) {
+      throw new BadRequestException(
+        `Unknown model "${resolved.model}". Available agents: ${this.agents.listIds().join(", ")}`,
+      );
+    }
+
     res.setHeader("x-session-id", resolved.sessionId);
 
     if (resolved.stream) {
-      this.streamChatCompletion(resolved, res);
+      this.streamChatCompletion(agent, resolved, res);
       return;
     }
 
-    await this.sendChatCompletion(resolved, res);
+    await this.sendChatCompletion(agent, resolved, res);
   }
 
-  private async sendChatCompletion(resolved: ResolvedChatRequest, res: Response): Promise<void> {
+  private async sendChatCompletion(
+    agent: Agent,
+    resolved: ResolvedChatRequest,
+    res: Response,
+  ): Promise<void> {
     try {
-      const result = await this.ragAgent.processMessage({
+      const result = await agent.processMessage({
         sessionId: resolved.sessionId,
         userMessage: resolved.userMessage,
-        model: this.resolveAgentModel(resolved.model),
         allowedToolNames: resolved.allowedToolNames,
       });
       res.status(200).json(createCompletionResponse(result.content, resolved.model));
@@ -78,7 +76,7 @@ export class WebService {
     }
   }
 
-  private streamChatCompletion(resolved: ResolvedChatRequest, res: Response): void {
+  private streamChatCompletion(agent: Agent, resolved: ResolvedChatRequest, res: Response): void {
     const streamId = `chatcmpl-${randomUUID()}`;
     res.status(200);
     res.setHeader("Content-Type", "text/event-stream");
@@ -86,15 +84,13 @@ export class WebService {
     res.setHeader("Connection", "keep-alive");
     res.flushHeaders?.();
 
-    // Initial role chunk so clients know a message is starting.
     res.write(
       `data: ${JSON.stringify(createCompletionChunk(streamId, "", null, resolved.model))}\n\n`,
     );
 
-    const stream$ = this.ragAgent.processMessageStream({
+    const stream$ = agent.processMessageStream({
       sessionId: resolved.sessionId,
       userMessage: resolved.userMessage,
-      model: this.resolveAgentModel(resolved.model),
       allowedToolNames: resolved.allowedToolNames,
     });
 
@@ -150,22 +146,18 @@ export class WebService {
       return null;
     }
     const sessionId = (req.header("x-session-id") as string | undefined) ?? randomUUID();
+    const defaultAgentId = this.agents.list()[0]?.descriptor.id;
+    if (!model && !defaultAgentId) {
+      res.status(400).json({ error: { message: "No model specified and no agents registered" } });
+      return null;
+    }
     return {
       sessionId,
-      model: model ?? AGENT_MODEL_ID,
+      model: model ?? defaultAgentId!,
       stream: Boolean(stream),
       userMessage: lastUser.content,
       allowedToolNames: req.allowedToolNames,
     };
-  }
-
-  /**
-   * The public-facing OpenAI-compatible model ID ("fredy-it-agent") does not
-   * map to any LLM provider. When the client uses it, we let the registry
-   * pick its configured fallback model.
-   */
-  private resolveAgentModel(requestedModel: string): string | undefined {
-    return requestedModel === AGENT_MODEL_ID ? undefined : requestedModel;
   }
 
   private respondWithError(res: Response, error: unknown, sessionId: string): void {

@@ -186,7 +186,7 @@ Der Agent iteriert maximal `maxIterations` (Standard: 10) Mal durch den folgende
 
     IF stream=false:
       → JSON-Response zurückgeben (OpenAI-kompatibles Format)
-      → createCompletionResponse(response, "fredy-it-agent", usage)
+      → createCompletionResponse(response, "rag-agent", usage)
 ```
 
 ---

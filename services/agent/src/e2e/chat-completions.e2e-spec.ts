@@ -113,20 +113,20 @@ describe("Chat Completions E2E", () => {
     expect(res.body).toEqual({ status: "ok" });
   });
 
-  it("GET /v1/models lists fredy-it-agent plus provider models", async () => {
+  it("GET /v1/models lists exactly one entry per registered agent", async () => {
     const res = await request(app.getHttpServer()).get("/v1/models");
     expect(res.status).toBe(200);
     expect(res.body.object).toBe("list");
     const ids = res.body.data.map((m: { id: string }) => m.id);
-    expect(ids).toContain("fredy-it-agent");
-    expect(ids).toContain("claude-sonnet-4-5-20250929");
+    expect(ids).toEqual(["rag-agent"]);
+    expect(res.body.data[0].owned_by).toBe("fredy");
   });
 
   it("POST /v1/chat/completions returns an OpenAI-shaped response with vector_search context", async () => {
     const res = await request(app.getHttpServer())
       .post("/v1/chat/completions")
       .send({
-        model: "fredy-it-agent",
+        model: "rag-agent",
         messages: [{ role: "user", content: "How do I VPN?" }],
       });
     expect(res.status).toBe(200);
@@ -135,11 +135,21 @@ describe("Chat Completions E2E", () => {
     expect(res.headers["x-session-id"]).toBeDefined();
   });
 
+  it("POST /v1/chat/completions rejects unknown model with 400", async () => {
+    const res = await request(app.getHttpServer())
+      .post("/v1/chat/completions")
+      .send({
+        model: "claude-sonnet-4-5",
+        messages: [{ role: "user", content: "x" }],
+      });
+    expect(res.status).toBe(400);
+  });
+
   it("POST /v1/chat/completions with stream=true emits SSE chunks and [DONE]", async () => {
     const res = await request(app.getHttpServer())
       .post("/v1/chat/completions")
       .send({
-        model: "fredy-it-agent",
+        model: "rag-agent",
         stream: true,
         messages: [{ role: "user", content: "How do I VPN?" }],
       })
@@ -166,7 +176,7 @@ describe("Chat Completions E2E", () => {
       .post("/v1/chat/completions")
       .set("x-role", "stranger")
       .send({
-        model: "fredy-it-agent",
+        model: "rag-agent",
         messages: [{ role: "user", content: "How do I VPN?" }],
       });
     // RBAC config is empty by default in this test → all tools allowed,

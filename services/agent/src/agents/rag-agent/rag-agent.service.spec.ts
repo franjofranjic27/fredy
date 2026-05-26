@@ -1,5 +1,6 @@
 import { ConfigService } from "@nestjs/config";
 import { Observable, firstValueFrom, toArray } from "rxjs";
+import { AgentRegistryService } from "../../shared/agents/agent-registry.service";
 import { LlmClient } from "../../shared/llm/llm-client.interface";
 import { LlmRegistryService } from "../../shared/llm/llm-registry.service";
 import { LlmStreamChunk } from "../../shared/llm/llm.types";
@@ -113,6 +114,7 @@ describe("RagAgentService", () => {
         promptAssembler,
         recorder,
         createSessions(),
+        new AgentRegistryService(),
         createConfig("claude-sonnet-4-5-20250929"),
       );
 
@@ -142,6 +144,7 @@ describe("RagAgentService", () => {
         createPromptAssembler(),
         recorder,
         createSessions(),
+        new AgentRegistryService(),
         createConfig("model-x"),
       );
 
@@ -164,6 +167,7 @@ describe("RagAgentService", () => {
         createPromptAssembler(),
         createRecorder(),
         createSessions(),
+        new AgentRegistryService(),
         createConfig(),
       );
       await svc.processMessage({
@@ -189,6 +193,7 @@ describe("RagAgentService", () => {
         createPromptAssembler(),
         recorder,
         createSessions(),
+        new AgentRegistryService(),
         createConfig(),
       );
 
@@ -210,6 +215,7 @@ describe("RagAgentService", () => {
         createPromptAssembler(),
         recorder,
         createSessions(),
+        new AgentRegistryService(),
         createConfig(),
       );
 

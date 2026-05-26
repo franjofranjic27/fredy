@@ -5,6 +5,7 @@ import { RagAgentModule } from "./agents/rag-agent/rag-agent.module";
 import { AuthModule } from "./auth/auth.module";
 import configuration from "./config/configuration";
 import { WebModule } from "./entry-points/web/web.module";
+import { AgentsModule } from "./shared/agents/agents.module";
 import { EmbeddingModule } from "./shared/embedding/embedding.module";
 import { LlmModule } from "./shared/llm/llm.module";
 import { SessionModule } from "./shared/memory/session/session.module";
@@ -20,6 +21,7 @@ import { VectorSearchModule } from "./tools/vector-search/vector-search.module";
     ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
     WinstonModule.forRoot(observabilityLoggerOptions),
     ObservabilityModule,
+    AgentsModule,
     ToolsModule,
     EmbeddingModule,
     VectorSearchModule,

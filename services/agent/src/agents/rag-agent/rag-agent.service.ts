@@ -1,6 +1,13 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Observable, Observer } from "rxjs";
+import { AgentRegistryService } from "../../shared/agents/agent-registry.service";
+import {
+  Agent,
+  AgentDescriptor,
+  AgentRequest,
+  AgentResponse,
+} from "../../shared/agents/agent.interface";
 import { LlmRegistryService } from "../../shared/llm/llm-registry.service";
 import { LlmStreamChunk } from "../../shared/llm/llm.types";
 import { SessionService } from "../../shared/memory/session/session.service";
@@ -13,21 +20,14 @@ import { RetrievalService } from "./retrieval.service";
 const FALLBACK_RESPONSE =
   "I'm sorry, I don't know the answer to that question. The relevant documentation may not be indexed in the knowledge base, or my access to it was restricted.";
 
-export interface RagAgentRequest {
-  sessionId: string;
-  userMessage: string;
-  model?: string;
-  allowedToolNames?: string[];
-  spaceKey?: string;
-}
-
-export interface RagAgentResponse {
-  content: string;
-  model: string;
-}
-
 @Injectable()
-export class RagAgentService {
+export class RagAgentService implements Agent, OnModuleInit {
+  readonly descriptor: AgentDescriptor = {
+    id: "rag-agent",
+    description: "RAG agent grounded in Confluence content stored in Qdrant",
+    ownedBy: "fredy",
+  };
+
   private readonly logger = new Logger(RagAgentService.name);
   private readonly defaultModel: string | undefined;
 
@@ -38,12 +38,17 @@ export class RagAgentService {
     private readonly promptAssembler: PromptAssemblerService,
     private readonly recorder: ResponseRecorderService,
     private readonly sessions: SessionService,
+    private readonly registry: AgentRegistryService,
     config: ConfigService,
   ) {
     this.defaultModel = config.get<string>("llm.fallbackModel");
   }
 
-  async processMessage(request: RagAgentRequest): Promise<RagAgentResponse> {
+  onModuleInit(): void {
+    this.registry.register(this);
+  }
+
+  async processMessage(request: AgentRequest): Promise<AgentResponse> {
     const startedAt = Date.now();
     const requestId = `${request.sessionId}-${startedAt}`;
     const span = this.observability.startSpan("agent.run", requestId, "rag-agent");
@@ -58,7 +63,7 @@ export class RagAgentService {
         spaceKey: request.spaceKey,
       });
 
-      const requestedModel = request.model ?? this.defaultModel;
+      const requestedModel = this.defaultModel;
 
       if (context === null) {
         const model = requestedModel ?? "unknown";
@@ -101,14 +106,14 @@ export class RagAgentService {
     }
   }
 
-  processMessageStream(request: RagAgentRequest): Observable<LlmStreamChunk> {
+  processMessageStream(request: AgentRequest): Observable<LlmStreamChunk> {
     return new Observable<LlmStreamChunk>((subscriber) => {
       void this.runStream(request, subscriber).catch((err) => subscriber.error(err));
     });
   }
 
   private async runStream(
-    request: RagAgentRequest,
+    request: AgentRequest,
     subscriber: Observer<LlmStreamChunk>,
   ): Promise<void> {
     const startedAt = Date.now();
@@ -125,7 +130,7 @@ export class RagAgentService {
         spaceKey: request.spaceKey,
       });
 
-      const requestedModel = request.model ?? this.defaultModel;
+      const requestedModel = this.defaultModel;
 
       if (context === null) {
         const model = requestedModel ?? "unknown";

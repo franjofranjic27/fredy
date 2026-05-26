@@ -35,13 +35,13 @@ describe("openai-types", () => {
 
   describe("createCompletionResponse", () => {
     it("wraps content into OpenAI-compatible shape", () => {
-      const resp = createCompletionResponse("hi there", "fredy-it-agent", {
+      const resp = createCompletionResponse("hi there", "rag-agent", {
         inputTokens: 10,
         outputTokens: 5,
       });
       expect(resp).toMatchObject({
         object: "chat.completion",
-        model: "fredy-it-agent",
+        model: "rag-agent",
         choices: [
           {
             index: 0,
