@@ -21,7 +21,7 @@
       "name": "Open WebUI",
       "enabled": true,
       "publicClient": false,
-      "secret": "CHANGE_ME",
+      "secret": "${env.KEYCLOAK_OPENWEBUI_SECRET}",
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
