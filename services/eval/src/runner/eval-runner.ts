@@ -1,19 +1,8 @@
 import type { EvalCase } from "../dataset/types.js";
 import type { QueryEmbeddingClient } from "../embedding/types.js";
-import {
-  hitRate,
-  meanReciprocalRank,
-  ndcgAtK,
-  precisionAtK,
-  recallAtK,
-} from "../metrics/index.js";
-import type { EvalQdrantClient } from "../qdrant/client.js";
-import type {
-  AggregatedMetrics,
-  EvalReport,
-  PerQueryMetric,
-  PerQueryResult,
-} from "./types.js";
+import { hitRate, meanReciprocalRank, ndcgAtK, precisionAtK, recallAtK } from "../metrics/index.js";
+import type { EvalPgVectorClient } from "../pgvector/client.js";
+import type { AggregatedMetrics, EvalReport, PerQueryMetric, PerQueryResult } from "./types.js";
 
 export interface RunnerOptions {
   kValues: number[];
@@ -23,11 +12,11 @@ export interface RunnerOptions {
 
 export interface RunnerDeps {
   embedding: QueryEmbeddingClient;
-  qdrant: EvalQdrantClient;
+  store: EvalPgVectorClient;
 }
 
 export interface RunnerContext {
-  qdrantCollection: string;
+  vectorTable: string;
   embeddingProvider: string;
   datasetPath: string;
 }
@@ -49,7 +38,7 @@ export class EvalRunner {
     return {
       generatedAt: new Date().toISOString(),
       config: {
-        qdrantCollection: context.qdrantCollection,
+        vectorTable: context.vectorTable,
         embeddingProvider: context.embeddingProvider,
         embeddingModel: this.deps.embedding.model,
         searchLimit: this.options.searchLimit,
@@ -67,7 +56,7 @@ export class EvalRunner {
 
   private async evaluateCase(evalCase: EvalCase): Promise<PerQueryResult> {
     const vector = await this.deps.embedding.embedQuery(evalCase.query);
-    const hits = await this.deps.qdrant.search(vector, {
+    const hits = await this.deps.store.search(vector, {
       limit: this.options.searchLimit,
       scoreThreshold: this.options.scoreThreshold,
     });

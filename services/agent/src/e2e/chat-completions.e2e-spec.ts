@@ -4,6 +4,7 @@ import { INestApplication } from "@nestjs/common";
 import { Test, TestingModule } from "@nestjs/testing";
 import { Observable } from "rxjs";
 import request from "supertest";
+import { z } from "zod";
 import { AppModule } from "../app.module";
 import { LlmClient } from "../shared/llm/llm-client.interface";
 import { LLM_CLIENTS } from "../shared/llm/llm.tokens";
@@ -49,13 +50,14 @@ class StubAnthropic implements LlmClient {
 
 function stubVectorSearchTool() {
   return {
-    description: {
-      name: "vector_search",
-      description: "stub",
-      parametersJsonSchema: { type: "object" },
-    },
+    name: "vector_search",
+    description: "stub",
+    inputSchema: z.object({
+      query: z.string(),
+      limit: z.number().optional(),
+      spaceKey: z.string().optional(),
+    }),
     execute: jest.fn().mockResolvedValue({
-      success: true,
       output: "VPN docs say: install Cisco AnyConnect from https://wiki/vpn",
       metadata: {
         chunks: [

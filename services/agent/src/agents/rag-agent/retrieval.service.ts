@@ -2,7 +2,8 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { trace, Tracer } from "@opentelemetry/api";
 import { ObservabilityService } from "../../shared/observability/observability.service";
-import { GEN_AI, setToolAttrs } from "../../shared/observability/semconv";
+import { GEN_AI } from "../../shared/observability/semconv";
+import { ToolExecutorService } from "../../shared/tools/tool-executor.service";
 import { ToolRegistryService } from "../../shared/tools/tool-registry.service";
 import { QueryRewriteService } from "./query-rewrite.service";
 
@@ -22,6 +23,7 @@ export class RetrievalService {
 
   constructor(
     private readonly toolRegistry: ToolRegistryService,
+    private readonly toolExecutor: ToolExecutorService,
     private readonly observability: ObservabilityService,
     private readonly queryRewrite: QueryRewriteService,
     config: ConfigService,
@@ -78,29 +80,33 @@ export class RetrievalService {
     requestId: string,
     spaceKey?: string,
   ): Promise<string> {
-    const tool = this.toolRegistry.getTool(VECTOR_SEARCH_TOOL);
-    if (!tool) return "";
-
     const blocks: string[] = [];
     for (const query of queries) {
       const span = this.observability.startSpan("retrieval", requestId, "rag-agent");
       span.setAttribute(GEN_AI.RETRIEVAL_QUERY, query);
       const startedAt = Date.now();
       try {
-        const result = await tool.execute({
-          query,
-          limit: this.defaultLimit,
-          spaceKey,
-        });
-        const chunks = result.metadata?.chunks ?? [];
+        const outcome = await this.toolExecutor.run<{ hits: unknown[] }>(
+          VECTOR_SEARCH_TOOL,
+          { query, limit: this.defaultLimit, spaceKey },
+          { requestId, agentId: "rag-agent" },
+        );
         const durationMs = Date.now() - startedAt;
+        if (!outcome.ok) {
+          span.setAttribute(GEN_AI.RETRIEVAL_RESULT_COUNT, 0);
+          this.observability.log({
+            type: "retrieval",
+            agent: "rag-agent",
+            requestId,
+            query,
+            resultCount: 0,
+            durationMs,
+            error: { code: outcome.error.code, message: outcome.error.message },
+          });
+          continue;
+        }
+        const chunks = outcome.result.metadata?.chunks ?? [];
         span.setAttribute(GEN_AI.RETRIEVAL_RESULT_COUNT, chunks.length);
-        setToolAttrs(span, {
-          name: VECTOR_SEARCH_TOOL,
-          success: result.success,
-          input: { query, limit: this.defaultLimit, spaceKey },
-          output: { count: chunks.length },
-        });
         this.observability.log({
           type: "retrieval",
           agent: "rag-agent",
@@ -110,8 +116,8 @@ export class RetrievalService {
           chunks,
           durationMs,
         });
-        if (result.success && result.output?.trim().length > 0) {
-          blocks.push(`Query: ${query}\n${result.output.trim()}`);
+        if (outcome.result.output?.trim().length > 0) {
+          blocks.push(`Query: ${query}\n${outcome.result.output.trim()}`);
         }
       } finally {
         span.end();

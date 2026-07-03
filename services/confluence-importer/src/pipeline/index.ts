@@ -1,4 +1,4 @@
-export { ingestConfluenceToQdrant } from "./ingest.js";
+export { ingestConfluence } from "./ingest.js";
 export { syncConfluence } from "./sync.js";
 export { ingestLocalFiles } from "./ingest-local.js";
 export type { IngestOptions, IngestResult } from "./ingest.js";

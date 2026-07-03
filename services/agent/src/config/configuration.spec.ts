@@ -12,11 +12,10 @@ describe("configuration", () => {
     const cfg = configuration();
     expect(cfg.port).toBe(8001);
     expect(cfg.logLevel).toBe("info");
-    expect(cfg.qdrant.url).toBe("http://localhost:6333");
-    expect(cfg.qdrant.collection).toBe("confluence-pages");
+    expect(cfg.database.url).toBe("postgresql://fredy:fredy@localhost:5432/fredy");
+    expect(cfg.database.table).toBe("chunks");
     expect(cfg.retrieval.defaultLimit).toBe(5);
     expect(cfg.retrieval.scoreThreshold).toBe(0.7);
-    expect(cfg.session.storeType).toBe("memory");
     expect(cfg.session.ttlMs).toBe(30 * 60 * 1000);
     expect(cfg.rateLimit.rpm).toBe(60);
     expect(cfg.rateLimit.burst).toBe(10);
@@ -29,8 +28,8 @@ describe("configuration", () => {
     process.env = {
       PORT: "9000",
       LOG_LEVEL: "debug",
-      QDRANT_URL: "http://qdrant:6333",
-      QDRANT_COLLECTION: "mydocs",
+      DATABASE_URL: "postgresql://user:pw@db:5432/mydb",
+      CHUNKS_TABLE: "mydocs",
       RAG_DEFAULT_RETRIEVAL_LIMIT: "8",
       RAG_SCORE_THRESHOLD: "0.5",
       EMBEDDING_PROVIDER: "voyage",
@@ -38,14 +37,13 @@ describe("configuration", () => {
       OTEL_GENAI_CAPTURE_CONTENT: "true",
       RATE_LIMIT_RPM: "120",
       RATE_LIMIT_BURST: "20",
-      SESSION_STORE_TYPE: "redis",
       ROLE_TOOL_CONFIG: '{"user":["fetch_url"]}',
     };
     const cfg = configuration();
     expect(cfg.port).toBe(9000);
     expect(cfg.logLevel).toBe("debug");
-    expect(cfg.qdrant.url).toBe("http://qdrant:6333");
-    expect(cfg.qdrant.collection).toBe("mydocs");
+    expect(cfg.database.url).toBe("postgresql://user:pw@db:5432/mydb");
+    expect(cfg.database.table).toBe("mydocs");
     expect(cfg.retrieval.defaultLimit).toBe(8);
     expect(cfg.retrieval.scoreThreshold).toBe(0.5);
     expect(cfg.embedding.provider).toBe("voyage");
@@ -53,7 +51,6 @@ describe("configuration", () => {
     expect(cfg.otel.captureContent).toBe(true);
     expect(cfg.rateLimit.rpm).toBe(120);
     expect(cfg.rateLimit.burst).toBe(20);
-    expect(cfg.session.storeType).toBe("redis");
     expect(cfg.auth.roleToolConfig).toContain("fetch_url");
   });
 

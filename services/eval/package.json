@@ -17,11 +17,12 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.36.0",
-    "@qdrant/js-client-rest": "^1.9.0",
+    "pg": "^8.13.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "@types/pg": "^8.11.0",
     "@vitest/coverage-v8": "^4.0.18",
     "eslint": "^10.0.0",
     "eslint-config-prettier": "^10.1.8",

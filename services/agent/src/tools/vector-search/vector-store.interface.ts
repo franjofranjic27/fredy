@@ -1,7 +1,11 @@
+export interface VectorSearchFilter {
+  spaceKey?: string;
+}
+
 export interface VectorSearchOptions {
   limit: number;
   scoreThreshold?: number;
-  filter?: Record<string, unknown>;
+  filter?: VectorSearchFilter;
 }
 
 export interface VectorSearchHit {

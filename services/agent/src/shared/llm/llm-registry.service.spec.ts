@@ -72,10 +72,10 @@ describe("LlmRegistryService", () => {
   });
 
   it("returns the first client when neither the request nor fallback match", async () => {
-    const ollama = new StubClient("ollama", "ollama:");
-    const service = await buildModule([ollama]);
+    const gemini = new StubClient("google.gemini", "gemini-");
+    const service = await buildModule([gemini]);
     const resolved = service.resolveClient("gpt-4o");
-    expect(resolved.providerId).toBe("ollama");
+    expect(resolved.providerId).toBe("google.gemini");
   });
 
   it("throws LlmError when no clients are registered", async () => {

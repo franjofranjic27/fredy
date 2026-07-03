@@ -35,7 +35,7 @@ export const DB = {
   COLLECTION_NAME: "db.collection.name",
 } as const;
 
-export type LlmSystem = "anthropic" | "openai" | "google.gemini" | "ollama";
+export type LlmSystem = "anthropic" | "openai" | "google.gemini";
 
 /**
  * Returns true when the OTEL_GENAI_CAPTURE_CONTENT env flag is enabled.

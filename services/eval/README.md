@@ -1,7 +1,7 @@
 # Fredy Eval
 
 Offline evaluation service for the Fredy RAG stack. Measures retrieval quality of the
-`confluence-importer → Qdrant → agent` pipeline using a golden dataset and standard
+`confluence-importer → pgvector → agent` pipeline using a golden dataset and standard
 information-retrieval metrics.
 
 ## What it does
@@ -9,14 +9,14 @@ information-retrieval metrics.
 For every query in `data/golden.jsonl`:
 
 1. Embed the query with the configured embedding provider (same one the agent uses).
-2. Search the live Qdrant collection (read-only) for the top-N chunks.
+2. Search the live pgvector `chunks` table (read-only) for the top-N chunks.
 3. Compare retrieved `chunkId`s against the expected `relevantChunkIds`.
 4. Compute per-query metrics, then aggregate (mean) across all queries.
 5. Write a JSON report to `reports/eval-<timestamp>.json` and stream the same JSON to
    stdout. A human-readable summary is written to stderr.
 
-The eval runner queries Qdrant **directly** — it does not go through the agent's
-HTTP API. This isolates retrieval quality from prompt/tool-orchestration effects.
+The eval runner queries the `chunks` table **directly** — it does not go through the
+agent's HTTP API. This isolates retrieval quality from prompt/tool-orchestration effects.
 
 ## Running
 
@@ -38,14 +38,13 @@ telling you to run the dataset generator first.
 | `EMBEDDING_PROVIDER` | yes | — | `openai` / `voyage` / `cohere` (must match the importer) |
 | `EMBEDDING_API_KEY` | yes | — | API key for the embedding provider |
 | `EMBEDDING_MODEL` | yes | — | Model name (must match the importer's model) |
-| `EMBEDDING_DIMENSIONS` | no | provider default | Vector size; must match the Qdrant collection |
-| `QDRANT_URL` | no | `http://localhost:6333` | Qdrant endpoint |
-| `QDRANT_COLLECTION` | no | `confluence-pages` | Collection to query |
-| `QDRANT_API_KEY` | no | — | Required only for Qdrant Cloud |
+| `EMBEDDING_DIMENSIONS` | no | provider default | Vector size; must match the `vector(n)` column |
+| `DATABASE_URL` | no | `postgresql://fredy:...@postgres:5432/fredy` | Shared `fredy` database (use `localhost:5432` outside Docker) |
+| `CHUNKS_TABLE` | no | `chunks` | Table to query |
 | `EVAL_DATASET_PATH` | no | `data/golden.jsonl` | Path to the golden dataset |
 | `EVAL_K_VALUES` | no | `1,3,5,10` | Comma-separated `k` values |
-| `EVAL_SEARCH_LIMIT` | no | `max(EVAL_K_VALUES)` | How many hits to fetch from Qdrant per query |
-| `EVAL_SCORE_THRESHOLD` | no | `0` | Score filter at Qdrant; kept at `0` so recall is honest |
+| `EVAL_SEARCH_LIMIT` | no | `max(EVAL_K_VALUES)` | How many hits to fetch from the table per query |
+| `EVAL_SCORE_THRESHOLD` | no | `0` | Score filter applied to the query; kept at `0` so recall is honest |
 | `EVAL_REPORTS_DIR` | no | `reports` | Where JSON reports are written |
 
 > **Why score threshold = 0?** The agent uses `scoreThreshold = 0.7` in production, but
@@ -105,7 +104,7 @@ Fredy Eval — Retrieval Quality Report
 ==================================================
 Generated:        2026-05-26T13:42:17.083Z
 Dataset:          data/golden.jsonl (42 queries)
-Qdrant:           confluence-pages
+Vector table:     chunks
 Embedding:        openai / text-embedding-3-small
 Search limit:     10
 Score threshold:  0
@@ -136,7 +135,7 @@ data/golden.jsonl              ← golden dataset (jsonl, Zod-validated)
         ▼
    dataset/loader  ──►  runner/eval-runner ──►  embedding/client  ──►  OpenAI/Voyage/Cohere
                               │                                    
-                              ├──►  qdrant/client (read-only)  ──►  Qdrant
+                              ├──►  pgvector/client (read-only)  ──►  PostgreSQL / pgvector (chunks)
                               │
                               └──►  metrics/{precision,recall,mrr,ndcg,hit-rate}
                                           │
@@ -147,7 +146,7 @@ data/golden.jsonl              ← golden dataset (jsonl, Zod-validated)
 ## Limitations / TODOs
 
 - **No end-to-end evaluation via the agent's HTTP API.** Eval currently bypasses
-  the agent and queries Qdrant directly. An end-to-end mode (measuring the actual
+  the agent and queries the `chunks` table directly. An end-to-end mode (measuring the actual
   agent answer quality, including tool selection and prompt effects) is out of
   scope for retrieval-quality measurement.
 - **Binary relevance only.** Graded relevance (e.g. 0/1/2) would require schema

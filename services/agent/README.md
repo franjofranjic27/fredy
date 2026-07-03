@@ -1,6 +1,6 @@
 # Fredy Agent Service
 
-NestJS service that exposes a deterministic RAG agent over an OpenAI-compatible HTTP API and over the Model Context Protocol (stdio). The agent grounds every answer in Confluence content retrieved from Qdrant — there is no open-ended ReAct loop.
+NestJS service that exposes a deterministic RAG agent over an OpenAI-compatible HTTP API and over the Model Context Protocol (stdio). The agent grounds every answer in Confluence content retrieved from PostgreSQL via pgvector — there is no open-ended ReAct loop.
 
 ## Architecture
 
@@ -34,16 +34,16 @@ src/
 │   └── rate-limit.interceptor.ts        Token-bucket per client IP
 │
 ├── shared/
-│   ├── llm/                    LlmRegistry + Anthropic, OpenAI, Gemini, Ollama clients
+│   ├── llm/                    LlmRegistry + Anthropic, OpenAI, Gemini clients
 │   ├── embedding/              EmbeddingClient (OpenAI, Voyage)
-│   ├── memory/session/         SessionService backed by Memory or Redis
+│   ├── memory/session/         SessionService (in-memory store)
 │   ├── observability/          OTel bootstrap, gen_ai.* semconv, AgentLogEvent
 │   ├── tools/                  ToolRegistryService (self-registration via OnModuleInit)
 │   ├── prompts/                BasePromptBuilder + tool-formatter
 │   └── openai/                 OpenAI request/response zod schema + builders
 │
 ├── tools/
-│   ├── vector-search/          Qdrant-backed vector_search tool
+│   ├── vector-search/          pgvector-backed vector_search tool
 │   ├── knowledge-base-stats/   get_knowledge_base_stats tool
 │   └── fetch-url/              fetch_url tool
 │
@@ -68,16 +68,16 @@ client → KeycloakAuthGuard → RbacGuard → RateLimitInterceptor → WebContr
                                             (vector_search)                   │
                                                   │                           │
                                                   ▼                           │
-                                            QdrantService                     │
+                                            PgVectorService                   │
                                                                               ▼
                                           PromptAssemblerService ← chat history
                                                   │
                                                   ▼
                                             LlmRegistryService
                                                   │
-                          ┌───────────┬───────────┼───────────┬───────────┐
-                          ▼           ▼           ▼           ▼           ▼
-                      Anthropic    OpenAI      Gemini       Ollama   (fallback)
+                          ┌───────────────┬───────┴───────┬───────────────┐
+                          ▼               ▼               ▼               ▼
+                      Anthropic        OpenAI          Gemini        (fallback)
                                                                               │
                                                                               ▼
                                                                 ResponseRecorderService
@@ -145,8 +145,8 @@ Quick smoke:
 
 | Tool | Description |
 |------|-------------|
-| `vector_search` | Semantic search over Qdrant; returns the top chunks plus their source URLs |
-| `get_knowledge_base_stats` | Returns the indexed chunk count for the collection |
+| `vector_search` | Semantic search over the pgvector `chunks` table; returns the top chunks plus their source URLs |
+| `get_knowledge_base_stats` | Returns the indexed chunk count for the `chunks` table |
 | `fetch_url` | Fetches the body of any HTTP(S) URL (max ~4000 chars) |
 
 Tools self-register at startup via `OnModuleInit`. New tools are added by writing a `@Injectable()` class implementing `Tool`, then importing its module from `AppModule` (or `McpAppModule`).
@@ -188,7 +188,7 @@ If a role is not present in the config and no `"default"` entry exists, the role
 
 ## Session management
 
-Conversations are keyed by `x-session-id`. The default backend is in-process; set `SESSION_STORE_TYPE=redis` and `REDIS_URL` to share state across replicas. Sessions are evicted after `SESSION_TTL_MS` (default 30 min) of inactivity.
+Conversations are keyed by `x-session-id`. The store is in-process (per-replica); state is not shared across replicas. Sessions are evicted after `SESSION_TTL_MS` (default 30 min) of inactivity.
 
 ---
 
@@ -215,7 +215,7 @@ The service emits **two parallel telemetry streams**:
 
 - `agent.run` — `agent.name`, `agent.session_id`
 - `gen_ai.chat` (one per LLM call) — `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.response.finish_reasons`
-- `gen_ai.tool.execute` (one per tool call) — `gen_ai.tool.name`, `tool.success`; for `vector_search` also `db.system=qdrant`, `db.collection.name`, `gen_ai.retrieval.result_count`
+- `gen_ai.tool.execute` (one per tool call) — `gen_ai.tool.name`, `tool.success`; for `vector_search` also `db.system=postgresql`, `db.collection.name` (the `chunks` table), `gen_ai.retrieval.result_count`
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318` to forward to the Jaeger all-in-one container shipped in `docker-compose.yml`. UI: http://localhost:16686.
 
@@ -258,9 +258,6 @@ This emits `gen_ai.user.message`, `gen_ai.assistant.message`, `tool.input` and `
 | `OPENAI_MAX_TOKENS` | `4096` | Max output tokens |
 | `GEMINI_API_KEY` | — | Enables the Gemini client |
 | `GEMINI_MAX_TOKENS` | `4096` | Max output tokens |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama endpoint |
-| `OLLAMA_MODEL` | `llama3.2` | Default Ollama model |
-| `OLLAMA_MODELS` | — | Comma-separated allowlist of Ollama models the registry should claim |
 
 ### Embedding (used by `vector_search`)
 
@@ -272,12 +269,12 @@ This emits `gen_ai.user.message`, `gen_ai.assistant.message`, `tool.input` and `
 | `EMBEDDING_VOYAGE_API_KEY` | — | Required if provider is `voyage` |
 | `EMBEDDING_VOYAGE_MODEL` | `voyage-3-lite` | Voyage embedding model |
 
-### Vector store (Qdrant)
+### Vector store (PostgreSQL + pgvector)
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `QDRANT_URL` | `http://localhost:6333` | Qdrant base URL |
-| `QDRANT_COLLECTION` | `confluence-pages` | Collection to query |
+| `DATABASE_URL` | `postgresql://fredy:...@postgres:5432/fredy` | Connection string to the shared `fredy` database (use `localhost:5432` outside Docker) |
+| `CHUNKS_TABLE` | `chunks` | Table holding the embedded Confluence chunks |
 
 ### Retrieval / prompt budget
 
@@ -291,8 +288,6 @@ This emits `gen_ai.user.message`, `gen_ai.assistant.message`, `tool.input` and `
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SESSION_STORE_TYPE` | `memory` | `memory` or `redis` |
-| `REDIS_URL` | `redis://localhost:6379` | Required when `SESSION_STORE_TYPE=redis` |
 | `SESSION_TTL_MS` | `1800000` | Session inactivity TTL (30 min) |
 
 ### Auth
@@ -341,4 +336,4 @@ Tests are co-located with the source as `*.spec.ts`. The e2e suite under `src/e2
 
 - The `QueryRewriteService` uses simple punctuation-based expansion. An LLM-driven rewrite (a separate provider call before retrieval) is out of scope for the current architecture but plugs in cleanly under the same interface.
 - Mistral is intentionally not yet wired into the registry. Adding it means a new `shared/llm/mistral/` directory implementing `LlmClient` plus an entry in `LlmModule`'s factory.
-- The `fetch_url` tool truncates large pages to ~4000 characters and does not strip HTML. Use it for short content; for long documents, ingest them into Qdrant via `services/confluence-importer` instead.
+- The `fetch_url` tool truncates large pages to ~4000 characters and does not strip HTML. Use it for short content; for long documents, ingest them into the pgvector `chunks` table via `services/confluence-importer` instead.

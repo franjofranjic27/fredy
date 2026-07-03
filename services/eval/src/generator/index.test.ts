@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnthropicClient } from "./anthropic-client.js";
-import type { QdrantSampler } from "./qdrant-sampler.js";
+import type { PgVectorSampler } from "./pgvector-sampler.js";
 import type { SampledChunk } from "./types.js";
 import { formatQueryId, generateDataset } from "./index.js";
 import { SeededRng } from "./rng.js";
@@ -24,7 +24,7 @@ function chunk(pageId: string, idx: number, total = 2, content = "content"): Sam
   };
 }
 
-function makeSamplerMock(corpus: SampledChunk[]): QdrantSampler {
+function makeSamplerMock(corpus: SampledChunk[]): PgVectorSampler {
   const byPage = new Map<string, SampledChunk[]>();
   for (const c of corpus) {
     const list = byPage.get(c.pageId) ?? [];
@@ -38,11 +38,9 @@ function makeSamplerMock(corpus: SampledChunk[]): QdrantSampler {
       return shuffled.slice(0, n);
     }),
     getChunksByPageId: vi.fn(async (pageId: string) =>
-      [...(byPage.get(pageId) ?? [])].sort(
-        (a, b) => a.metadata.chunkIndex - b.metadata.chunkIndex,
-      ),
+      [...(byPage.get(pageId) ?? [])].sort((a, b) => a.metadata.chunkIndex - b.metadata.chunkIndex),
     ),
-  } as unknown as QdrantSampler;
+  } as unknown as PgVectorSampler;
 }
 
 function makeLlmMock(): AnthropicClient {
@@ -124,7 +122,7 @@ describe("generateDataset", () => {
     const sampler = {
       sampleChunks: vi.fn(async () => [corpus[0]]),
       getChunksByPageId: vi.fn(async () => [corpus[0], corpus[1], corpus[2]]),
-    } as unknown as QdrantSampler;
+    } as unknown as PgVectorSampler;
 
     const records = await generateDataset(
       { count: 1, outputPath: join(outDir, "n.jsonl"), seed: 1, concurrency: 1 },
@@ -168,7 +166,7 @@ describe("generateDataset", () => {
     const sampler = {
       sampleChunks: vi.fn(async () => [corpus[0]]),
       getChunksByPageId: vi.fn(async () => corpus),
-    } as unknown as QdrantSampler;
+    } as unknown as PgVectorSampler;
 
     const verifyRelevance = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
     const llm = {

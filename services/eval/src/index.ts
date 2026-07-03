@@ -1,7 +1,7 @@
 import { loadConfig } from "./config/env.js";
 import { DatasetNotFoundError, DatasetParseError, loadDataset } from "./dataset/loader.js";
 import { createEmbeddingClient } from "./embedding/client.js";
-import { EvalQdrantClient } from "./qdrant/client.js";
+import { EvalPgVectorClient } from "./pgvector/client.js";
 import { formatSummary } from "./runner/console-summary.js";
 import { EvalRunner } from "./runner/eval-runner.js";
 import { writeReport } from "./runner/report-writer.js";
@@ -18,14 +18,13 @@ async function main(): Promise<void> {
     dimensions: config.embedding.dimensions,
   });
 
-  const qdrant = new EvalQdrantClient({
-    url: config.qdrant.url,
-    collectionName: config.qdrant.collection,
-    apiKey: config.qdrant.apiKey,
+  const store = new EvalPgVectorClient({
+    databaseUrl: config.database.url,
+    tableName: config.database.table,
   });
 
   const runner = new EvalRunner(
-    { embedding, qdrant },
+    { embedding, store },
     {
       kValues: config.runner.kValues,
       searchLimit: config.runner.searchLimit,
@@ -33,16 +32,20 @@ async function main(): Promise<void> {
     },
   );
 
-  const report = await runner.run(cases, {
-    qdrantCollection: config.qdrant.collection,
-    embeddingProvider: config.embedding.provider,
-    datasetPath: config.dataset.path,
-  });
+  try {
+    const report = await runner.run(cases, {
+      vectorTable: config.database.table,
+      embeddingProvider: config.embedding.provider,
+      datasetPath: config.dataset.path,
+    });
 
-  const reportPath = await writeReport(report, config.runner.reportsDir);
+    const reportPath = await writeReport(report, config.runner.reportsDir);
 
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-  process.stderr.write(`\n${formatSummary(report)}\n\nReport written to: ${reportPath}\n`);
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    process.stderr.write(`\n${formatSummary(report)}\n\nReport written to: ${reportPath}\n`);
+  } finally {
+    await store.close();
+  }
 }
 
 main().catch((error: unknown) => {
@@ -50,7 +53,7 @@ main().catch((error: unknown) => {
     process.stderr.write(`${error.message}\n`);
     process.exit(2);
   }
-  const message = error instanceof Error ? error.stack ?? error.message : String(error);
+  const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
   process.stderr.write(`Eval run failed: ${message}\n`);
   process.exit(1);
 });

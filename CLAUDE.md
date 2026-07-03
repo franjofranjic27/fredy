@@ -45,17 +45,16 @@ docker compose restart <svc>  # Restart specific service
 
 | Service | URL | Purpose |
 |---------|-----|---------|
-| Ollama | http://localhost:11434 | Local LLM runtime |
 | Open-WebUI | http://localhost:3000 | Web interface |
-| Qdrant | http://localhost:6333 | Vector database |
+| PostgreSQL / pgvector | localhost:5432 | Vector database |
+| Keycloak | http://localhost:8080 | OAuth provider |
 
 ## Architecture
 
 ### Infrastructure Layer
-- **Ollama**: Local LLM inference for development and cost-effective usage
-- **Open-WebUI**: Chat interface connected to LLM providers and vector DB
-- **Qdrant**: Primary vector database for embeddings and semantic search
-- **pgvector**: Alternative vector storage option (PostgreSQL extension)
+- **Open-WebUI**: Chat interface connected to the agent and vector DB
+- **PostgreSQL + pgvector**: Vector database for embeddings and semantic search (shared by the Fredy RAG pipeline and Open-WebUI)
+- **Keycloak**: OAuth/OIDC provider for Open-WebUI and the agent
 
 ### Application Layer (planned)
 - **AI Agents**: Orchestration logic using Claude API
@@ -66,7 +65,7 @@ docker compose restart <svc>  # Restart specific service
 
 - Provider-agnostic LLM integration (start with Claude, extensible to others)
 - Loosely coupled services for future repository splitting
-- Both Qdrant and pgvector support for comparing vector DB approaches
+- PostgreSQL + pgvector as the single vector store for both the RAG pipeline and Open-WebUI
 
 ## Implementation Guides
 
@@ -85,7 +84,7 @@ All commits in this repository MUST follow this format:
 **Types:** `feat`, `fix`, `refactor`, `docs`, `chore`, `test`, `ci`, `build`
 
 **Scopes** (use the most specific one that applies):
-- `confluence-importer` — Confluence → Qdrant ingestion service (`services/confluence-importer/`)
+- `confluence-importer` — Confluence → pgvector ingestion service (`services/confluence-importer/`)
 - `agent` — AI agent service (`services/agent/`)
 - `mcp` — MCP servers (`services/mcp-*`)
 - `infra` — Docker, docker-compose, deployment configs

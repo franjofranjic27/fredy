@@ -1,5 +1,6 @@
 import { ExecutionContext } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { z } from "zod";
 import { ToolRegistryService } from "../../shared/tools/tool-registry.service";
 import { RbacService } from "../services/rbac.service";
 import { RbacGuard } from "./rbac.guard";
@@ -30,19 +31,15 @@ describe("RbacGuard", () => {
   beforeEach(() => {
     registry = new ToolRegistryService();
     registry.register({
-      description: {
-        name: "vector_search",
-        description: "vs",
-        parametersJsonSchema: {},
-      },
+      name: "vector_search",
+      description: "vs",
+      inputSchema: z.object({}),
       execute: jest.fn(),
     });
     registry.register({
-      description: {
-        name: "fetch_url",
-        description: "fu",
-        parametersJsonSchema: {},
-      },
+      name: "fetch_url",
+      description: "fu",
+      inputSchema: z.object({}),
       execute: jest.fn(),
     });
   });

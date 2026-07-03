@@ -29,10 +29,10 @@
    - Input: Array von Chunk-Texten (Batch à 10)
    - Output: number[][] (Float-Vektoren)
 
-5. **Qdrant**
-   - Alte Chunks der Seite löschen (deletePageChunks by pageId)
-   - Neue Chunks + Vektoren upserten (Batch à 100 Points)
-   - Point: { id: hash(chunkId), vector: [...floats], payload: { content, metadata } }
+5. **PostgreSQL / pgvector** (Tabelle `chunks`)
+   - Alte Chunks der Seite löschen (`DELETE FROM chunks WHERE page_id = $1`)
+   - Neue Chunks + Vektoren upserten (Batch à 100 Rows, `INSERT ... ON CONFLICT (chunk_id) DO UPDATE`)
+   - Row: { chunk_id, page_id, space_key, title, url, content, labels (text[]), metadata (jsonb), embedding (vector) }
 
 ---
 
@@ -40,7 +40,7 @@
 
 1. **LocalFileClient** — Verzeichnis scannen nach konfigurierten Extensions
 2. Datei-Inhalt → HTML konvertieren (Markdown/Text → HTML)
-3. **HTML Chunker** → **Embedding API** → **Qdrant**
+3. **HTML Chunker** → **Embedding API** → **PostgreSQL / pgvector**
    (identischer Pfad wie Confluence ab Schritt 3)
 
 ---
@@ -54,8 +54,8 @@
    - GET /rest/api/content/search?cql=lastModified >= "<lastSyncTime>"
 
 3. **Label Filter**
-   - Seite excluded → Chunks aus Qdrant löschen
-   - Seite included → Re-Chunk → Re-Embed → Upsert in Qdrant
+   - Seite excluded → Chunks aus der `chunks`-Tabelle löschen
+   - Seite included → Re-Chunk → Re-Embed → Upsert in die `chunks`-Tabelle
 
 4. **lastSyncTime** wird nach jedem erfolgreichen Run aktualisiert
 
@@ -65,11 +65,11 @@
 
 1. Agent sendet Suchanfrage (natürlichsprachlicher Text)
 2. **Embedding API** — Anfrage → Vektor
-3. **Qdrant Vector Search**
-   - Cosine Similarity
-   - Score Threshold: 0.7
-   - Optionale Filter: spaceKey, labels
-   - Limit: Top 5 Ergebnisse
+3. **pgvector Similarity Search** (SQL auf Tabelle `chunks`)
+   - Cosine Distance über den `<=>`-Operator; `score = 1 - distance`
+   - Score Threshold: 0.7 (`WHERE 1 - (embedding <=> $1) >= 0.7`)
+   - Optionale Filter: `space_key`, `labels` (`WHERE space_key = $2`, `labels && $3`)
+   - Limit: Top 5 Ergebnisse (`ORDER BY embedding <=> $1 LIMIT 5`)
 4. Rückgabe: [{ content, metadata (title, url, spaceKey, ...), score }]
 5. **LLM / Agent** nutzt Chunks als Kontext für die Antwort
 
@@ -85,7 +85,7 @@
 | HTML Chunker     | node-html-parser         | HTML → semantische Text-Chunks       |
 | Tokenizer        | tiktoken                 | Token-Counting für Chunk-Größen      |
 | EmbeddingClient  | OpenAI / Voyage / Cohere | Text → Float-Vektoren                |
-| QdrantClient     | @qdrant/js-client-rest   | Vektoren speichern und durchsuchen   |
+| PgVectorClient   | node-postgres (pg) + pgvector | Vektoren speichern und durchsuchen |
 | Tracing          | OpenTelemetry            | Spans für ingest und sync            |
 
 ---
@@ -96,7 +96,7 @@
 |------------------------------|---------------------------|
 | Confluence Pages pro Request | 50                        |
 | Chunk Batch (Embedding)      | 10 Chunks                 |
-| Upsert Batch (Qdrant)        | 100 Points                |
+| Upsert Batch (pgvector)      | 100 Rows                  |
 | Cron Schedule                | 0 */6 * * * (alle 6h)    |
 | Similarity                   | Cosine                    |
 | Score Threshold              | 0.7                       |

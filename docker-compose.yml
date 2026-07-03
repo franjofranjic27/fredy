@@ -13,40 +13,40 @@ services:
       - ./infrastructure/keycloak:/opt/keycloak/data/import:ro
       - keycloak_data:/opt/keycloak/data
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: postgres
     restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-fredy}"
+      POSTGRES_USER: "${POSTGRES_USER:-fredy}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
     ports:
-      - "11434:11434"
+      - "5432:5432"
     volumes:
-      - ollama:/root/.ollama
-
-  redis:
-    image: redis:7-alpine
-    container_name: redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
+      - pgdata:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fredy} -d ${POSTGRES_DB:-fredy}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   openwebui:
     image: ghcr.io/open-webui/open-webui:main
     container_name: open-webui
     restart: always
     depends_on:
-      - qdrant
+      - postgres
       - agent
       - keycloak
     ports:
       - "3000:8080"
     environment:
-      OLLAMA_BASE_URL: "http://ollama:11434"
       OPENAI_API_BASE_URL: "http://fredy-agent:8001/v1"
       OPENAI_API_KEY: "${AGENT_API_KEY}"
-      VECTOR_DB: "qdrant"
-      QDRANT_URI: "http://qdrant:6333"
+      VECTOR_DB: "pgvector"
+      PGVECTOR_DB_URL: "postgresql://${POSTGRES_USER:-fredy}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-fredy}"
       ENABLE_FORWARD_USER_INFO_HEADERS: "true"
       OAUTH_CLIENT_ID: "openwebui"
       OAUTH_CLIENT_SECRET: "${KEYCLOAK_OPENWEBUI_SECRET}"
@@ -59,15 +59,6 @@ services:
       DEFAULT_USER_ROLE: "user"
     volumes:
       - open-webui:/app/backend/data
-
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: qdrant
-    restart: unless-stopped
-    ports:
-      - "6333:6333"
-    volumes:
-      - qdrant_data:/qdrant/storage
 
   jaeger:
     image: jaegertracing/all-in-one:latest
@@ -86,7 +77,7 @@ services:
     env_file:
       - .env
     depends_on:
-      - qdrant
+      - postgres
     environment:
       CONFLUENCE_BASE_URL: "${CONFLUENCE_BASE_URL}"
       CONFLUENCE_USERNAME: "${CONFLUENCE_USERNAME}"
@@ -98,9 +89,8 @@ services:
       EMBEDDING_API_KEY: "${EMBEDDING_API_KEY}"
       EMBEDDING_MODEL: "${EMBEDDING_MODEL:-text-embedding-3-small}"
       EMBEDDING_DIMENSIONS: "${EMBEDDING_DIMENSIONS:-1536}"
-      QDRANT_URL: "http://qdrant:6333"
-      QDRANT_COLLECTION: "${QDRANT_COLLECTION:-confluence-pages}"
-      QDRANT_API_KEY: "${QDRANT_API_KEY:-}"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-fredy}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-fredy}"
+      CHUNKS_TABLE: "${CHUNKS_TABLE:-chunks}"
       SYNC_CRON: "${SYNC_CRON:-0 */6 * * *}"
       SYNC_FULL_ON_START: "${SYNC_FULL_ON_START:-false}"
       CHUNK_MAX_TOKENS: "${CHUNK_MAX_TOKENS:-800}"
@@ -121,7 +111,7 @@ services:
     env_file:
       - .env
     depends_on:
-      - qdrant
+      - postgres
     ports:
       - "8001:8001"
     environment:
@@ -129,13 +119,11 @@ services:
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
       LLM_FALLBACK_MODEL: "${LLM_FALLBACK_MODEL:-claude-sonnet-4-5-20250929}"
-      OLLAMA_BASE_URL: "http://ollama:11434"
-      OLLAMA_MODEL: "${OLLAMA_MODEL:-llama3.2}"
       EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-openai}"
       EMBEDDING_API_KEY: "${EMBEDDING_API_KEY:-}"
       EMBEDDING_MODEL: "${EMBEDDING_MODEL:-text-embedding-3-small}"
-      QDRANT_URL: "http://qdrant:6333"
-      QDRANT_COLLECTION: "${QDRANT_COLLECTION:-confluence-pages}"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-fredy}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-fredy}"
+      CHUNKS_TABLE: "${CHUNKS_TABLE:-chunks}"
       PORT: "8001"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
       ROLE_TOOL_CONFIG: >-
@@ -144,29 +132,12 @@ services:
       KEYCLOAK_JWKS_URL: "${KEYCLOAK_JWKS_URL:-}"
       KEYCLOAK_ISSUER: "${KEYCLOAK_ISSUER:-}"
       KEYCLOAK_AUDIENCE: "${KEYCLOAK_AUDIENCE:-fredy-agent}"
-      SESSION_STORE_TYPE: "${SESSION_STORE_TYPE:-memory}"
-      REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
       RATE_LIMIT_RPM: "${RATE_LIMIT_RPM:-60}"
       RATE_LIMIT_BURST: "${RATE_LIMIT_BURST:-10}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}"
       OTEL_GENAI_CAPTURE_CONTENT: "${OTEL_GENAI_CAPTURE_CONTENT:-false}"
 
-#  postgres:
-#    image: pgvector/pgvector:pg17
-#    container_name: pgvector
-#    restart: unless-stopped
-#    environment:
-#      POSTGRES_DB: openwebui_vectors
-#      POSTGRES_USER: openwebui
-#      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
-#    ports:
-#      - "5432:5432"
-#    volumes:
-#      - pgdata:/var/lib/postgresql/data
-
 volumes:
-  qdrant_data:
-  ollama:
+  pgdata:
   open-webui:
   keycloak_data:
-  redis_data:

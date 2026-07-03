@@ -24,7 +24,7 @@ const FALLBACK_RESPONSE =
 export class RagAgentService implements Agent, OnModuleInit {
   readonly descriptor: AgentDescriptor = {
     id: "rag-agent",
-    description: "RAG agent grounded in Confluence content stored in Qdrant",
+    description: "RAG agent grounded in Confluence content stored in PostgreSQL/pgvector",
     ownedBy: "fredy",
   };
 

@@ -23,11 +23,12 @@ export interface RetrievalEvent extends BaseLogEvent {
   resultCount: number;
   chunks?: Array<{ id: string; score?: number; url?: string; title?: string }>;
   durationMs?: number;
+  error?: { code: string; message: string };
 }
 
 export interface LlmCallEvent extends BaseLogEvent {
   type: "llm-call";
-  provider: "anthropic" | "openai" | "google.gemini" | "ollama";
+  provider: "anthropic" | "openai" | "google.gemini";
   model: string;
   inputTokens?: number;
   outputTokens?: number;

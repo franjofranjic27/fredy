@@ -1,9 +1,8 @@
 import { z } from "zod";
 
 const EnvSchema = z.object({
-  QDRANT_URL: z.string().url().default("http://localhost:6333"),
-  QDRANT_COLLECTION: z.string().min(1).default("confluence-pages"),
-  QDRANT_API_KEY: z.string().optional(),
+  DATABASE_URL: z.string().min(1).default("postgresql://fredy:fredy@localhost:5432/fredy"),
+  CHUNKS_TABLE: z.string().min(1).default("chunks"),
   EMBEDDING_PROVIDER: z.enum(["openai", "voyage", "cohere"]),
   EMBEDDING_API_KEY: z.string().min(1),
   EMBEDDING_MODEL: z.string().min(1),
@@ -16,10 +15,9 @@ const EnvSchema = z.object({
 });
 
 export interface EvalConfig {
-  qdrant: {
+  database: {
     url: string;
-    collection: string;
-    apiKey?: string;
+    table: string;
   };
   embedding: {
     provider: "openai" | "voyage" | "cohere";
@@ -51,10 +49,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): EvalConfig {
   const searchLimit = e.EVAL_SEARCH_LIMIT ?? Math.max(...kValues);
 
   return {
-    qdrant: {
-      url: e.QDRANT_URL,
-      collection: e.QDRANT_COLLECTION,
-      apiKey: e.QDRANT_API_KEY,
+    database: {
+      url: e.DATABASE_URL,
+      table: e.CHUNKS_TABLE,
     },
     embedding: {
       provider: e.EMBEDDING_PROVIDER,
@@ -82,7 +79,9 @@ function parseKValues(raw: string): number[] {
     .map((s) => {
       const n = Number(s);
       if (!Number.isInteger(n) || n <= 0) {
-        throw new Error(`EVAL_K_VALUES contains invalid value: "${s}" (expected positive integers)`);
+        throw new Error(
+          `EVAL_K_VALUES contains invalid value: "${s}" (expected positive integers)`,
+        );
       }
       return n;
     });
