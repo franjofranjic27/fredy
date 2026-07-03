@@ -1,59 +1,101 @@
-# Fredy Eval
+# rag-eval
 
-Offline evaluation service for the Fredy RAG stack. Measures retrieval quality of the
-`confluence-importer → pgvector → agent` pipeline using a golden dataset and standard
-information-retrieval metrics.
+Retrieval evaluation harness for the Fredy RAG stack. It produces **evidence** which
+RAG configuration is better: a golden dataset (queries + expected chunk ids), standard
+IR metrics, optional reranking, and A/B comparison across RAG profiles.
 
-## What it does
+## Concept
 
-For every query in `data/golden.jsonl`:
-
-1. Embed the query with the configured embedding provider (same one the agent uses).
-2. Search the live pgvector `chunks` table (read-only) for the top-N chunks.
-3. Compare retrieved `chunkId`s against the expected `relevantChunkIds`.
-4. Compute per-query metrics, then aggregate (mean) across all queries.
-5. Write a JSON report to `reports/eval-<timestamp>.json` and stream the same JSON to
-   stdout. A human-readable summary is written to stderr.
-
-The eval runner queries the `chunks` table **directly** — it does not go through the
-agent's HTTP API. This isolates retrieval quality from prompt/tool-orchestration effects.
-
-## Running
-
-```bash
-# Generate the golden dataset (separate service / agent — not part of this service)
-pnpm --filter @fredy/eval generate-dataset   # TODO: provided by the dataset-generator agent
-
-# Run the evaluation
-pnpm --filter @fredy/eval eval
+```
+golden set (JSONL)  ──►  per query: embed → pgvector search → (rerank) → metrics
+                                        │
+                                        ▼
+                     JSON + Markdown reports, A/B comparison table
 ```
 
-If `data/golden.jsonl` does not exist, the runner exits with code 2 and a message
-telling you to run the dataset generator first.
+1. **Golden dataset** — `rag-eval generate` samples chunks from a profile's pgvector
+   table (deterministic, seeded) and asks Claude to write realistic user questions that
+   are answered by exactly that chunk. Expected relevant chunks = the source chunk plus
+   its same-page neighbours.
+2. **Metrics** — for every query the retrieved ranking is scored with precision@k,
+   recall@k, nDCG@k, MRR and hit-rate (binary relevance), then averaged over all queries.
+3. **A/B evidence** — `rag-eval compare` runs the *same* dataset against multiple
+   profiles and/or rerankers and renders one table with the winner per metric bolded.
+
+The runner queries the chunk tables **directly** (read-only) — retrieval quality is
+measured in isolation from prompt/tool-orchestration effects.
+
+## RAG profiles
+
+The importer registers each ingestion configuration in the `rag_profiles` table
+(chunker, embedding provider/model/dimensions, chunk table name). `rag-eval` reads
+that registry, so `--profile exp1` automatically evaluates the right table with the
+right embedding model.
+
+If `rag_profiles` does not exist (or the profile row is missing), the tool falls back
+to env config (`VECTOR_TABLE`, `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`,
+`EMBEDDING_DIMENSIONS`) and works against a plain `chunks` table.
+
+## The research loop
+
+```bash
+# 1. Ingest the same corpus under two profiles (done with the importer)
+confluence-importer run --profile default
+confluence-importer run --profile exp1     # e.g. different chunker or embedding model
+
+# 2. Generate the golden set ONCE (from the baseline profile)
+rag-eval generate --profile default --num-chunks 50 --questions-per-chunk 2 \
+  --seed 42 --out data/golden.jsonl
+
+# 3. Evaluate a single configuration
+rag-eval run --dataset data/golden.jsonl --profile default
+
+# 4. Same configuration + reranker (report shows pre- AND post-rerank metrics)
+rag-eval run --dataset data/golden.jsonl --profile default \
+  --reranker cohere --rerank-threshold 0.35
+
+# 5. A/B comparison — the actual evidence
+rag-eval compare --dataset data/golden.jsonl \
+  --profile default --profile exp1 --reranker cohere
+```
+
+`compare` writes `reports/comparison_<timestamp>.md` with one row per configuration
+(rows = configs, columns = precision@k / recall@k / nDCG@k / MRR / hit-rate) and the
+best value per column bolded. Individual JSON + Markdown reports are written as
+`reports/<timestamp>_<profile>[_<reranker>].json|md`.
+
+## Setup
+
+```bash
+uv sync --all-groups
+uv run rag-eval --help
+```
 
 ### Environment variables
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `EMBEDDING_PROVIDER` | yes | — | `openai` / `voyage` / `cohere` (must match the importer) |
-| `EMBEDDING_API_KEY` | yes | — | API key for the embedding provider |
-| `EMBEDDING_MODEL` | yes | — | Model name (must match the importer's model) |
-| `EMBEDDING_DIMENSIONS` | no | provider default | Vector size; must match the `vector(n)` column |
-| `DATABASE_URL` | no | `postgresql://fredy:...@postgres:5432/fredy` | Shared `fredy` database (use `localhost:5432` outside Docker) |
-| `CHUNKS_TABLE` | no | `chunks` | Table to query |
-| `EVAL_DATASET_PATH` | no | `data/golden.jsonl` | Path to the golden dataset |
-| `EVAL_K_VALUES` | no | `1,3,5,10` | Comma-separated `k` values |
-| `EVAL_SEARCH_LIMIT` | no | `max(EVAL_K_VALUES)` | How many hits to fetch from the table per query |
-| `EVAL_SCORE_THRESHOLD` | no | `0` | Score filter applied to the query; kept at `0` so recall is honest |
-| `EVAL_REPORTS_DIR` | no | `reports` | Where JSON reports are written |
+| Variable | Default | Description |
+|---|---|---|
+| `DATABASE_URL` | `postgresql://fredy:fredy@localhost:5432/fredy` | Postgres with pgvector |
+| `ANTHROPIC_API_KEY` | — | Required by `generate` |
+| `EMBEDDING_API_KEY` | — | Required by `run` / `compare` |
+| `EMBEDDING_PROVIDER` | — | Fallback when no profile row: `openai` / `voyage` / `cohere` |
+| `EMBEDDING_MODEL` | — | Fallback embedding model |
+| `EMBEDDING_DIMENSIONS` | provider default | Fallback vector size |
+| `VECTOR_TABLE` | `chunks` | Fallback chunk table (legacy alias: `CHUNKS_TABLE`) |
+| `EVAL_K_VALUES` | `1,3,5,10` | Comma-separated k values |
+| `EVAL_SEARCH_LIMIT` | `20` | Hits fetched from pgvector per query |
+| `EVAL_SCORE_THRESHOLD` | `0.0` | Similarity cutoff (keep 0 so recall is honest) |
+| `EVAL_REPORTS_DIR` | `reports` | Report output directory |
+| `RERANKER` | `none` | `none` / `cohere` / `voyage` |
+| `RERANK_API_KEY` | — | Required when a reranker is active |
+| `RERANK_MODEL` | `rerank-v3.5` (cohere), `rerank-2.5` (voyage) | Rerank model |
+| `RERANK_TOP_N` | `10` | Candidates kept after reranking |
+| `RERANK_THRESHOLD` | `0.0` | Drop reranked results below this relevance score |
 
-> **Why score threshold = 0?** The agent uses `scoreThreshold = 0.7` in production, but
-> for evaluation we want to see how the underlying ranking looks without that cut. The
-> threshold is a separate tuning knob — measure first, tune after.
+## Golden dataset format
 
-## Golden dataset schema
-
-Each line in `data/golden.jsonl` is one JSON object:
+One JSON object per line (`data/golden.jsonl`) — stable since the TypeScript version,
+existing datasets keep loading:
 
 ```json
 {
@@ -61,95 +103,33 @@ Each line in `data/golden.jsonl` is one JSON object:
   "query": "Wie konfiguriere ich den Confluence-Import?",
   "relevantChunkIds": ["12345_0", "12345_1"],
   "source": "synthetic",
-  "metadata": {
-    "sourcePageId": "12345",
-    "sourcePageTitle": "Confluence Import Setup",
-    "sourceSpaceKey": "DOCS",
-    "generatedBy": "claude-opus-4-7",
-    "generatedAt": "2026-05-26T12:00:00Z"
-  }
+  "metadata": { "sourcePageId": "12345", "sourcePageTitle": "Confluence Import Setup" }
 }
 ```
 
-Chunk IDs follow the importer's convention: `<pageId>_<chunkIndex>`.
-
-Validation rules (enforced via Zod):
-
-- `queryId`, `query`, `source` — non-empty strings, `queryId` unique
-- `relevantChunkIds` — non-empty array of non-empty strings
-- `metadata` — free-form object (extra fields are tolerated)
-- Empty lines in the file are skipped
-- Schema violations abort with the offending line number
+Validation: `queryId` unique and non-empty, `query`/`source` non-empty,
+`relevantChunkIds` a non-empty array of non-empty strings, `metadata` free-form,
+blank lines skipped, schema violations abort with the offending line number.
 
 ## Metrics
 
-All metrics use **binary relevance** (a chunk is either relevant or not).
+All metrics use binary relevance.
 
 | Metric | What it tells you |
 |---|---|
-| **Precision@k** | Of the top-k retrieved chunks, what fraction is actually relevant. Low → too much noise. |
-| **Recall@k** | Of all relevant chunks for a query, what fraction did we recover in the top-k. Low → missing answers. |
-| **NDCG@k** | Like Recall@k but rewards relevant chunks that appear earlier in the ranking. Sensitive to order. |
-| **HitRate** | 1 if at least one relevant chunk appears anywhere in the top-N, else 0. The most lenient signal. |
-| **MRR** | Mean reciprocal rank across queries: `mean(1 / rank_of_first_relevant_hit)`. Captures how quickly the first useful chunk appears. |
+| **Precision@k** | Of the top-k retrieved chunks, the fraction that is relevant. Low → noise. |
+| **Recall@k** | Of all relevant chunks, the fraction recovered in the top-k. Low → missing answers. |
+| **nDCG@k** | Rank-aware: relevant chunks earlier in the list score higher. |
+| **Hit-rate** | 1 if any relevant chunk was retrieved at all. The most lenient signal. |
+| **MRR** | Mean of `1 / rank of first relevant hit`. How fast the first useful chunk appears. |
 
-Aggregation is a simple mean over all queries.
+With a reranker active, reports contain both `aggregated` (pre-rerank) and
+`rerankedAggregated` (post-rerank) so the reranker's lift is directly visible.
 
-## Sample output
+## Development
 
-stderr (human-readable summary):
-
+```bash
+uv run pytest --cov=rag_eval --cov-report=xml --cov-report=term
+uv run ruff check .
+uv run ruff format .
 ```
-Fredy Eval — Retrieval Quality Report
-==================================================
-Generated:        2026-05-26T13:42:17.083Z
-Dataset:          data/golden.jsonl (42 queries)
-Vector table:     chunks
-Embedding:        openai / text-embedding-3-small
-Search limit:     10
-Score threshold:  0
-
-Aggregated metrics (mean over queries):
-
-k   Precision@k  Recall@k  NDCG@k
---  -----------  --------  ------
-1   0.7619       0.4524    0.7619
-3   0.5556       0.7619    0.7032
-5   0.4143       0.8571    0.7384
-10  0.2429       0.9286    0.7691
-
-HitRate:          0.9524
-MRR:              0.8175
-
-Report written to: /…/services/eval/reports/eval-2026-05-26T13-42-17-083Z.json
-```
-
-stdout: the same data as a JSON document, suitable for piping into other tools or
-storing in CI artifacts.
-
-## Architecture
-
-```
-data/golden.jsonl              ← golden dataset (jsonl, Zod-validated)
-        │
-        ▼
-   dataset/loader  ──►  runner/eval-runner ──►  embedding/client  ──►  OpenAI/Voyage/Cohere
-                              │                                    
-                              ├──►  pgvector/client (read-only)  ──►  PostgreSQL / pgvector (chunks)
-                              │
-                              └──►  metrics/{precision,recall,mrr,ndcg,hit-rate}
-                                          │
-                                          ▼
-                                  reports/eval-<ts>.json + stdout/stderr
-```
-
-## Limitations / TODOs
-
-- **No end-to-end evaluation via the agent's HTTP API.** Eval currently bypasses
-  the agent and queries the `chunks` table directly. An end-to-end mode (measuring the actual
-  agent answer quality, including tool selection and prompt effects) is out of
-  scope for retrieval-quality measurement.
-- **Binary relevance only.** Graded relevance (e.g. 0/1/2) would require schema
-  changes and a different NDCG implementation.
-- **No statistical significance tests** between runs. Useful for A/B comparisons
-  of embedding models or chunk strategies — but not in scope yet.

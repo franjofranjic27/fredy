@@ -1,6 +1,14 @@
-node_modules/
-dist/
-coverage/
 reports/
+# Generated datasets contain internal knowledge-base content — never commit them.
+data/*
+!data/.gitkeep
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+coverage/
+coverage.xml
+.coverage
 *.log
 .DS_Store
