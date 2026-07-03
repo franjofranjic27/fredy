@@ -1,0 +1,30 @@
+name: 📝 Dokumentation
+description: Fehlende, veraltete oder fehlerhafte Dokumentation melden
+title: "docs: "
+labels: ["documentation"]
+body:
+  - type: dropdown
+    id: target
+    attributes:
+      label: Welche Dokumentation?
+      options:
+        - README
+        - ADR (Architecture Decision Record)
+        - API-Doku
+        - prompts/
+        - Sonstige
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Was fehlt oder ist falsch?
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Vorschlag
+      description: Wie sollte es stattdessen lauten?

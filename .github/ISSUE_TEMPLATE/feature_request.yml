@@ -1,0 +1,46 @@
+name: ✨ Feature Request
+description: Eine neue Funktion oder Verbesserung vorschlagen
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Motivation
+      description: Welches Problem löst das Feature? Warum ist es sinnvoll?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Vorgeschlagene Lösung
+      description: Wie könnte die Umsetzung aussehen?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: service
+    attributes:
+      label: Betroffener Service / Scope
+      options:
+        - confluence-importer
+        - agent
+        - mcp
+        - infra
+        - config
+        - noch offen / cross-cutting
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativen
+      description: Welche anderen Ansätze wurden erwogen?
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Zusätzlicher Kontext
+      description: Links, Skizzen, Referenzen.
