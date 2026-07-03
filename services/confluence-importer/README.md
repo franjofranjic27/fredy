@@ -1,194 +1,149 @@
 # Fredy Confluence Importer
 
-Confluence pages and local files → chunked, embedded, stored in the PostgreSQL `chunks` table (pgvector) for semantic search by the agent service.
+Confluence pages, image attachments and local files → chunked, embedded, stored in
+PostgreSQL/pgvector for semantic search by the agent service.
 
-## Architecture
+Beyond plain ingestion, the importer is a small **RAG research platform**: chunking
+strategy, embedding model and parameters are bundled into *RAG profiles* so different
+configurations can be ingested side by side into separate tables and A/B-compared.
 
 ```
-Confluence API  ──┐
-                   ├─► html-chunker ──► embed() ──► PostgreSQL / pgvector (chunks)
-Local Files ───────┘
+Confluence API ──┐
+Image attachments ├─► chunker (per profile) ──► embeddings (per profile) ──► pgvector
+Local files ─────┘                                                            (per-profile table)
 ```
 
-The pipeline runs in three stages:
+## Setup
 
-1. **Fetch** — Pull pages from Confluence (paginated) or scan local files
-2. **Chunk** — Split HTML into semantically coherent text segments with context prefixes
-3. **Embed & Store** — Generate vector embeddings and upsert into the `chunks` table
-
-The target table lives in the shared `fredy` database. Its schema (the `vector`
-extension, the `chunks` table and its indexes) is provisioned by
-`infrastructure/postgres/init.sql`; the importer additionally (re)creates the
-schema idempotently on startup.
-
----
-
-## Embedding Models
-
-**Current default:** OpenAI `text-embedding-3-small`, 1536 dimensions
-
-Chosen for cost-effectiveness ($0.02/1M tokens), broad availability, and strong quality for
-English and code content. Configured via `EMBEDDING_PROVIDER` + `EMBEDDING_MODEL`.
-
-| Model | Provider | Dimensions | Quality | Cost | Notes |
-|-------|----------|-----------|---------|------|-------|
-| `text-embedding-3-small` | OpenAI | 1536 | Good | ~$0.02/1M | **Default** |
-| `text-embedding-3-large` | OpenAI | 3072 | Better | ~$0.13/1M | Higher precision |
-| `voyage-2` | Voyage AI | 1024 | Good | ~$0.10/1M | Less storage |
-| `voyage-large-2` | Voyage AI | 1536 | Better | ~$0.12/1M | Good for multilingual |
-
-> **Important:** Changing the embedding model requires a full re-index. The `chunks` table's
-> `embedding` column is a fixed-size `vector(n)`. Set `EMBEDDING_DIMENSIONS` to match the new
-> model, recreate the table (or `TRUNCATE` it), and run `ingest` again.
-
----
-
-## Chunking Strategy
-
-A **chunk** is a text segment from a Confluence page or local file, sized to fit within
-embedding API token limits while preserving enough context for relevant retrieval.
-
-**Current settings:**
-
-| Parameter | Value | Env var |
-|-----------|-------|---------|
-| Max tokens per chunk | 800 | `CHUNK_MAX_TOKENS` |
-| Overlap between chunks | 100 tokens | `CHUNK_OVERLAP_TOKENS` |
-| Preserve code blocks | true | `CHUNK_PRESERVE_CODE` |
-| Preserve tables | true | `CHUNK_PRESERVE_TABLES` |
-
-**How it works:**
-
-1. HTML is split at header boundaries (`<h1>`–`<h6>`) into sections
-2. Sections larger than `maxTokens` are further split at paragraph boundaries
-3. Consecutive chunks overlap by `overlapTokens` to avoid losing context at boundaries
-4. Each chunk gets a context prefix: `Page: Title\nPath: Ancestors\nSection: H1 > H2`
-
-**Token estimate:** Currently uses `Math.ceil(text.length / 4)` — a rough heuristic
-valid for English ASCII text. See [Todo 6](todos/06-token-estimation.md) for exact tiktoken replacement.
-
-**Recommended chunk sizes by content type:**
-
-| Content type | Recommended max tokens | Notes |
-|---|---|---|
-| FAQ / short docs | 300–500 | More precise retrieval |
-| Technical documentation | 500–800 | Current setting |
-| Long articles / code | 800–1200 | More context per result |
-
-Overlap should always be 10–15% of `maxTokens`.
-
----
-
-## Environment Variables
-
-### Confluence (optional — omit to use local files only)
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `CONFLUENCE_BASE_URL` | Yes* | — | e.g. `https://your-domain.atlassian.net/wiki` |
-| `CONFLUENCE_USERNAME` | Yes* | — | Your Atlassian email |
-| `CONFLUENCE_API_TOKEN` | Yes* | — | Atlassian API token |
-| `CONFLUENCE_SPACES` | Yes* | — | Comma-separated space keys, e.g. `IT,DOCS,KB` |
-| `CONFLUENCE_INCLUDE_LABELS` | No | — | Only ingest pages with these labels |
-| `CONFLUENCE_EXCLUDE_LABELS` | No | `ignore,draft,archived` | Skip pages with these labels |
-
-*Required only when `CONFLUENCE_BASE_URL` is set.
-
-### Embedding
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `EMBEDDING_PROVIDER` | Yes | — | `openai`, `voyage`, or `cohere` |
-| `EMBEDDING_API_KEY` | Yes | — | API key for the selected provider |
-| `EMBEDDING_MODEL` | No | `text-embedding-3-small` | Model name |
-| `EMBEDDING_DIMENSIONS` | No | `1536` | Vector dimensions (must match model and the `vector(n)` column) |
-
-### PostgreSQL / pgvector
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `DATABASE_URL` | Yes | — | `postgresql://fredy:...@postgres:5432/fredy` (use `localhost:5432` outside Docker) |
-| `CHUNKS_TABLE` | No | `chunks` | Target table for embedded chunks |
-
-### Chunking
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `CHUNK_MAX_TOKENS` | No | `800` | Max tokens per chunk |
-| `CHUNK_OVERLAP_TOKENS` | No | `100` | Overlap between consecutive chunks |
-| `CHUNK_PRESERVE_CODE` | No | `true` | Keep code blocks intact |
-| `CHUNK_PRESERVE_TABLES` | No | `true` | Keep tables intact |
-
-### Sync / Scheduler
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `SYNC_CRON` | No | `0 */6 * * *` | Cron schedule for daemon mode |
-| `SYNC_FULL_ON_START` | No | `false` | Run full ingest when daemon starts |
-
-### Local Files
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `LOCAL_FILES_ENABLED` | No | `false` | Enable local file ingestion |
-| `LOCAL_FILES_DIRECTORY` | No | `/data/files` | Directory to scan |
-| `LOCAL_FILES_EXTENSIONS` | No | `.md,.txt,.html` | Comma-separated file extensions |
-
----
-
-## CLI Commands
+Requires Python >= 3.12 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-# Build first
-pnpm build
-
-# Full ingestion from all configured sources
-node dist/index.js ingest
-
-# Ingest only Confluence
-node dist/index.js ingest --source confluence
-
-# Ingest only local files
-node dist/index.js ingest --source files
-
-# Incremental sync (Confluence pages modified since last sync)
-node dist/index.js sync
-
-# Start daemon with scheduled incremental sync
-node dist/index.js daemon
-
-# Search the vector database
-node dist/index.js search "how to deploy"
-
-# Show table stats (chunk count, indexed vectors)
-node dist/index.js info
-
-# Diagnose why the DB is sparse (planned — see Todo 2)
-node dist/index.js diagnose
+cd services/confluence-importer
+uv sync                    # install dependencies (incl. dev tools)
+uv run confluence-importer --help
 ```
 
----
+## CLI
+
+```bash
+uv run confluence-importer ingest                      # full ingest, "default" profile
+uv run confluence-importer ingest --profile exp1       # ingest into profile "exp1"
+uv run confluence-importer ingest --full               # truncate table first (clean rebuild)
+uv run confluence-importer sync                        # incremental sync + deletion detection
+uv run confluence-importer profiles list               # show configured profiles
+uv run confluence-importer run                         # scheduler mode (Docker default)
+```
+
+`run` honors `SYNC_FULL_ON_START` (full ingest at boot) and then syncs on the
+`SYNC_CRON` schedule. Incremental sync fetches pages modified since the last run via
+CQL and additionally removes chunks of pages that were deleted in Confluence
+(detected by diffing stored page ids against live ids).
+
+## RAG Profiles (A/B experiments)
+
+A profile = chunking strategy + parameters + embedding model + target table.
+
+- The **`default`** profile is built from the flat env vars (`CHUNK_*`, `EMBEDDING_*`)
+  and writes to `CHUNKS_TABLE` (default `chunks`).
+- Additional profiles are loaded from an optional YAML file referenced by
+  `PROFILES_FILE`. Each non-default profile writes to `chunks_<name>`.
+- Every ingest upserts the profile into the `rag_profiles` registry table so eval
+  tooling can discover which experiment produced which table.
+
+```yaml
+# profiles.yaml
+profiles:
+  - name: recursive_large
+    chunker: recursive                  # html_section | fixed_size | recursive
+    chunker_params:
+      chunk_size: 3000
+      chunk_overlap: 300
+    embedding_provider: openai
+    embedding_model: text-embedding-3-large
+    embedding_dimensions: 3072
+  - name: fixed_voyage
+    chunker: fixed_size
+    chunker_params:
+      max_tokens: 512
+      overlap_tokens: 64
+    embedding_provider: voyage
+    embedding_model: voyage-3
+    embedding_dimensions: 1024
+    embedding_api_key_env: VOYAGE_API_KEY   # optional, defaults to EMBEDDING_API_KEY
+```
+
+### Chunking strategies
+
+| Name | Description | Params |
+|---|---|---|
+| `html_section` | Default. Splits HTML by `h1`–`h6` into sections with a header path, converts to markdown-ish text (fenced code, pipe tables, bullets), splits oversized sections by paragraphs with sentence-boundary overlap. | `max_tokens` (800), `overlap_tokens` (100) |
+| `fixed_size` | Fixed token windows (tiktoken `cl100k_base`) with overlap. | `max_tokens` (800), `overlap_tokens` (100) |
+| `recursive` | `RecursiveCharacterTextSplitter` (langchain-text-splitters) over the shared HTML→text output. | `chunk_size` (2000 chars), `chunk_overlap` (200) |
+
+Every chunk gets a context prefix (`Page: …` / `Path: ancestors` / `Section: header path`)
+and camelCase JSONB metadata (`chunkIndex`, `totalChunks`, `headerPath`, `contentType`).
+
+## Media support (image attachments)
+
+With `MEDIA_ENABLED=true`, image attachments (`image/*`, ≤ `MEDIA_MAX_BYTES`) are
+downloaded and stored in the `attachments` table (binary + metadata). With
+`MEDIA_CAPTION_ENABLED=true` and an `ANTHROPIC_API_KEY`, each image is captioned via
+the Anthropic Messages API (`claude-haiku-4-5`) with a dense factual description in
+the page's language; the caption is embedded as an extra chunk
+(`{page_id}_att_{attachment_id}`, `contentType: "image"`) so images become searchable.
+
+## Environment variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CONFLUENCE_BASE_URL` | – | Confluence root URL (Cloud: must end in `/wiki`). Optional — omit to run local-files-only. |
+| `CONFLUENCE_USERNAME` | – | API username/email |
+| `CONFLUENCE_API_TOKEN` | – | API token |
+| `CONFLUENCE_SPACES` | – | Comma-separated space keys |
+| `CONFLUENCE_INCLUDE_LABELS` | – | Only pages with at least one of these labels |
+| `CONFLUENCE_EXCLUDE_LABELS` | `ignore,draft,archived` | Pages with any of these labels are skipped |
+| `EMBEDDING_PROVIDER` | `openai` | `openai` \| `voyage` \| `cohere` |
+| `EMBEDDING_API_KEY` | – | API key for the embedding provider |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | Model name |
+| `EMBEDDING_DIMENSIONS` | `1536` | Vector size (must match the table) |
+| `DATABASE_URL` | `postgresql://fredy:fredy@localhost:5432/fredy` | PostgreSQL connection |
+| `CHUNKS_TABLE` | `chunks` | Table of the default profile |
+| `SYNC_CRON` | `0 */6 * * *` | Cron schedule for `run` mode |
+| `SYNC_FULL_ON_START` | `false` | Full ingest at daemon start |
+| `CHUNK_MAX_TOKENS` | `800` | Default profile chunk size |
+| `CHUNK_OVERLAP_TOKENS` | `100` | Default profile overlap |
+| `CHUNK_PRESERVE_CODE` | `true` | Reserved chunking flag |
+| `CHUNK_PRESERVE_TABLES` | `true` | Reserved chunking flag |
+| `LOCAL_FILES_ENABLED` | `false` | Enable local file ingestion |
+| `LOCAL_FILES_DIRECTORY` | `/data/files` | Directory to scan |
+| `LOCAL_FILES_EXTENSIONS` | `.md,.txt,.html` | File extensions to include |
+| `PROFILES_FILE` | – | Path to the profiles YAML |
+| `MEDIA_ENABLED` | `false` | Ingest image attachments |
+| `MEDIA_CAPTION_ENABLED` | `false` | Caption images via Anthropic |
+| `MEDIA_MAX_BYTES` | `5000000` | Max attachment size |
+| `ANTHROPIC_API_KEY` | – | Required for captioning |
+| `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
+
+## Storage schema
+
+Per profile table (`chunks`, `chunks_<profile>`): `chunk_id TEXT PK`, `page_id`,
+`space_key`, `title`, `url`, `content`, `labels TEXT[]`, `metadata JSONB`,
+`embedding VECTOR(n)` with an HNSW cosine index. Similarity is
+`1 - (embedding <=> query)`, identical to the previous TS implementation.
+
+Shared tables: `rag_profiles` (experiment registry), `attachments` (image binaries
+and captions).
 
 ## Development
 
 ```bash
-pnpm install
-pnpm build          # tsc compile to dist/
-pnpm test:run       # run tests once (vitest — planned, see Todo 4)
+uv run ruff check .
+uv run ruff format .
+uv run pytest --cov=confluence_importer --cov-report=xml --cov-report=term
 ```
 
----
+## TODO
 
-## Known Limitations
-
-- **No retry on transient errors** — a 429 from OpenAI or Confluence drops the entire chunk
-  batch silently. Planned fix: [Todo 3 — Retry & Resilience](todos/03-retry-resilience.md).
-- **Rough token estimation** — `length / 4` over-estimates for CJK and code, under-estimates
-  for some Unicode. Planned fix: [Todo 6 — js-tiktoken](todos/06-token-estimation.md).
-- **No test coverage** — regressions in chunking logic are invisible.
-  Planned fix: [Todo 4 — Vitest](todos/04-tests-vitest.md).
-- **Deterministic `chunk_id` values** (`<pageId>_<chunkIndex>`) act as the table's primary
-  key. Re-ingesting a page overwrites its existing rows via upsert; there is no separate
-  collision handling for the identifiers.
-- **No overlap protection in cron** — two syncs can run concurrently if one is slow.
-  Planned fix: [Todo 3 — Retry & Resilience](todos/03-retry-resilience.md).
+- OpenTelemetry tracing was removed during the Python rewrite (the TS service had
+  `tracing.ts`). Re-introduce OTEL instrumentation once the tracing setup for
+  Python services is decided.

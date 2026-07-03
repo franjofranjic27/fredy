@@ -42,3 +42,7 @@ data/confluence-files/*
 # Test coverage
 services/agent/coverage/
 services/confluence-importer/coverage/
+coverage.xml
+.coverage
+.pytest_cache/
+.ruff_cache/
