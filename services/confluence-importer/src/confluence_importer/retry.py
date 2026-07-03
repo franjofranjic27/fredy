@@ -9,6 +9,10 @@ import httpx
 
 _RETRYABLE_STATUS = re.compile(r"\b(429|500|502|503|504)\b")
 
+# SystemRandom satisfies python:S2245 — jitter needs no crypto strength,
+# but the OS RNG costs nothing here and keeps the scanner quiet.
+_rng = random.SystemRandom()
+
 
 def is_retryable(error: Exception) -> bool:
     """Retry on HTTP 429/5xx (matched in the message, like the TS version) and transport errors."""
@@ -20,7 +24,7 @@ def is_retryable(error: Exception) -> bool:
 def _full_jitter_delay(attempt: int, min_delay: float, max_delay: float) -> float:
     """Random delay in [0, min(cap, base * 2^attempt)]."""
     exponential = min(max_delay, min_delay * (2**attempt))
-    return random.random() * exponential  # noqa: S311 - jitter, not crypto
+    return _rng.random() * exponential
 
 
 def with_retry[T](
