@@ -1,0 +1,122 @@
+name: Release
+
+# Cut a release by pushing a semver tag, e.g.:
+#   git tag v0.0.1 && git push origin v0.0.1
+#
+# Requires two repository settings (Settings -> Secrets and variables -> Actions):
+#   - Variable  DOCKERHUB_USERNAME : your Docker Hub namespace (user or org)
+#   - Secret    DOCKERHUB_TOKEN    : a Docker Hub access token with write scope
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  # Build the two services that have their own Dockerfile, in parallel.
+  build-services:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: agent
+            image: fredy-agent
+          - service: confluence-importer
+            image: fredy-confluence-importer
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image }}
+          tags: |
+            type=raw,value=${{ github.ref_name }}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          push: true
+          # Add linux/arm64 here (plus a docker/setup-qemu-action@v4 step) for
+          # multi-arch images; amd64 covers the typical Linux server target.
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Mirror the upstream images we don't build ourselves, in parallel.
+  # imagetools copies the full multi-arch manifest registry-to-registry.
+  mirror-images:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - source: pgvector/pgvector:pg17
+            image: fredy-postgres
+          - source: ghcr.io/open-webui/open-webui:main
+            image: fredy-openwebui
+    steps:
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Mirror ${{ matrix.source }} -> ${{ matrix.image }}
+        run: |
+          DEST="${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image }}"
+          docker buildx imagetools create \
+            --tag "${DEST}:${{ github.ref_name }}" \
+            --tag "${DEST}:latest" \
+            "${{ matrix.source }}"
+
+  # Once every image is published, cut the GitHub release with auto notes.
+  release:
+    needs: [build-services, mirror-images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NS: ${{ vars.DOCKERHUB_USERNAME }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          NOTES=$(gh api "repos/${{ github.repository }}/releases/generate-notes" \
+            -f tag_name="$VERSION" --jq '.body')
+          {
+            echo "## 🐳 Docker images"
+            echo
+            echo '```bash'
+            echo "docker pull ${NS}/fredy-agent:${VERSION}"
+            echo "docker pull ${NS}/fredy-confluence-importer:${VERSION}"
+            echo "docker pull ${NS}/fredy-postgres:${VERSION}"
+            echo "docker pull ${NS}/fredy-openwebui:${VERSION}"
+            echo '```'
+            echo
+            echo "$NOTES"
+          } > release-notes.md
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes-file release-notes.md

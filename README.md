@@ -91,6 +91,38 @@ docker compose restart openwebui  # Restart a single service
 docker compose pull               # Pull latest images
 ```
 
+## Releases
+
+Docker images are published to Docker Hub and a GitHub release is cut whenever
+you push a semver tag. Both self-built services and the mirrored upstream
+images are built in parallel.
+
+**One-time setup** (Settings → Secrets and variables → Actions):
+
+| Kind | Name | Value |
+|------|------|-------|
+| Variable | `DOCKERHUB_USERNAME` | your Docker Hub namespace (user or org) |
+| Secret | `DOCKERHUB_TOKEN` | a Docker Hub access token with write scope |
+
+**Cut a release:**
+
+```bash
+git tag v0.0.1
+git push origin v0.0.1
+```
+
+This publishes (each tagged with the version and `latest`):
+
+| Image | Source |
+|-------|--------|
+| `<user>/fredy-agent` | `services/agent/Dockerfile` |
+| `<user>/fredy-confluence-importer` | `services/confluence-importer/Dockerfile` |
+| `<user>/fredy-postgres` | mirror of `pgvector/pgvector:pg17` |
+| `<user>/fredy-openwebui` | mirror of `ghcr.io/open-webui/open-webui:main` |
+
+The GitHub release is created automatically with generated notes plus the
+`docker pull` commands for the published images.
+
 ## Repository Structure
 
 ```
