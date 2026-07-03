@@ -322,7 +322,7 @@ This emits `gen_ai.user.message`, `gen_ai.assistant.message`, `tool.input` and `
 pnpm install
 pnpm build           # nest build (SWC)
 pnpm test            # Jest unit tests
-pnpm test:cov        # Jest with coverage
+pnpm test:coverage   # Jest with coverage
 pnpm test:e2e        # supertest e2e (boots the full HTTP stack with stubs)
 pnpm lint
 pnpm format
