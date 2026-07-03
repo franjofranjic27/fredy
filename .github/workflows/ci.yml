@@ -5,7 +5,7 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  test:
+  agent:
     if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
 
@@ -29,17 +29,46 @@ jobs:
       - name: Typecheck agent
         run: cd services/agent && pnpm exec tsc --noEmit
 
-      - name: Typecheck confluence-importer
-        run: cd services/confluence-importer && pnpm exec tsc --noEmit
-
       - name: Lint agent
         run: cd services/agent && pnpm lint
-
-      - name: Lint confluence-importer
-        run: cd services/confluence-importer && pnpm lint
 
       - name: Test agent
         run: cd services/agent && pnpm test
 
-      - name: Test confluence-importer
-        run: cd services/confluence-importer && pnpm test:run
+  python:
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: confluence-importer
+            package: confluence_importer
+          - service: eval
+            package: rag_eval
+
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: services/${{ matrix.service }}/uv.lock
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Lint (ruff check)
+        run: uv run ruff check .
+
+      - name: Format check (ruff format)
+        run: uv run ruff format --check .
+
+      - name: Test with coverage
+        run: uv run pytest --cov=${{ matrix.package }} --cov-report=xml

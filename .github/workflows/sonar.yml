@@ -33,8 +33,19 @@ jobs:
       - name: Run agent tests with coverage
         run: cd services/agent && pnpm test:coverage
 
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: services/*/uv.lock
+
+      # Produces services/confluence-importer/coverage.xml for the Sonar scan
       - name: Run confluence-importer tests with coverage
-        run: cd services/confluence-importer && pnpm test:coverage
+        run: cd services/confluence-importer && uv sync && uv run pytest --cov=confluence_importer --cov-report=xml
+
+      # Produces services/eval/coverage.xml for the Sonar scan
+      - name: Run eval tests with coverage
+        run: cd services/eval && uv sync && uv run pytest --cov=rag_eval --cov-report=xml
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v8

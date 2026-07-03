@@ -42,6 +42,14 @@
       "automerge": true
     },
     {
+      "description": "Python Dev-Toolchain (Ruff/Pytest) zusammenfassen und bei gruenem CI automergen",
+      "matchManagers": ["pep621"],
+      "matchPackageNames": ["ruff", "pytest", "pytest-**"],
+      "groupName": "python dev tooling",
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    },
+    {
       "description": "@types/* zusammenfassen und automergen",
       "matchPackageNames": ["@types/**"],
       "groupName": "type definitions",
