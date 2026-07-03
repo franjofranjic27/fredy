@@ -1,6 +1,104 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    "group:monorepos",
+    "group:recommended",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "timezone": "Europe/Zurich",
+  "schedule": ["before 6am on monday"],
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "labels": ["dependencies"],
+  "rangeStrategy": "bump",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  "postUpdateOptions": ["pnpmDedupe"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"]
+  },
+  "packageRules": [
+    {
+      "description": "Dev-Toolchain (Lint/Format/Test/Build) zusammenfassen und bei gruenem CI automergen",
+      "matchDepTypes": ["devDependencies"],
+      "matchPackageNames": [
+        "eslint",
+        "eslint-config-prettier",
+        "typescript-eslint",
+        "prettier",
+        "typescript",
+        "ts-node",
+        "ts-loader",
+        "ts-jest",
+        "tsx",
+        "tsconfig-paths"
+      ],
+      "groupName": "dev tooling",
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    },
+    {
+      "description": "@types/* zusammenfassen und automergen",
+      "matchPackageNames": ["@types/**"],
+      "groupName": "type definitions",
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    },
+    {
+      "description": "Test-Runner (jest / vitest inkl. Coverage) gruppieren",
+      "matchPackageNames": [
+        "jest",
+        "@types/jest",
+        "vitest",
+        "@vitest/**",
+        "supertest",
+        "@types/supertest"
+      ],
+      "groupName": "test runners"
+    },
+    {
+      "description": "NestJS gemeinsam aktualisieren (Peer-Versionen muessen zusammenpassen)",
+      "matchPackageNames": ["@nestjs/**", "nest-winston"],
+      "groupName": "nestjs"
+    },
+    {
+      "description": "OpenTelemetry gemeinsam aktualisieren (0.x-Pakete brechen sonst untereinander)",
+      "matchPackageNames": ["@opentelemetry/**"],
+      "groupName": "opentelemetry"
+    },
+    {
+      "description": "LLM-SDKs bewusst getrennt und ohne Automerge halten",
+      "matchPackageNames": [
+        "@anthropic-ai/sdk",
+        "openai",
+        "@google/genai",
+        "@modelcontextprotocol/sdk",
+        "ollama"
+      ],
+      "groupName": "llm sdks",
+      "automerge": false
+    },
+    {
+      "description": "GitHub Actions patch/minor automergen",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "automerge": true
+    },
+    {
+      "description": "Docker-Digest-Updates fuer bewegliche Tags (latest/main) nicht als PR-Laerm",
+      "matchManagers": ["docker-compose", "dockerfile"],
+      "matchUpdateTypes": ["digest"],
+      "enabled": false
+    },
+    {
+      "description": "Major-Updates immer einzeln und ohne Automerge",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "minimumReleaseAge": "3 days"
+    }
   ]
 }
