@@ -5,6 +5,12 @@
 **/.cache
 **/.next
 **/.DS_Store
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/coverage.xml
+**/.coverage
 
 .git
 .github

@@ -96,7 +96,10 @@ jobs:
               echo "$changed" | grep -qE '^packages/common/|^pnpm-lock\.yaml$|^pnpm-workspace\.yaml$|^package\.json$' && shared=yes || true
               echo "$changed" | grep -qE '^services/agent/' && agent=true || true
               echo "$changed" | grep -qE '^services/confluence-importer/' && importer=true || true
-              if [ "$shared" = "yes" ]; then agent=true; importer=true; fi
+              # Shared pnpm workspace changes only affect the TS agent; the
+              # importer is a self-contained Python/uv project (uv.lock lives
+              # inside services/confluence-importer/ and is caught above).
+              if [ "$shared" = "yes" ]; then agent=true; fi
               if echo "$changed" | grep -qE '^docker-compose\.yml$'; then postgres=true; openwebui=true; fi
             fi
           fi

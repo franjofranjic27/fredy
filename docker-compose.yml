@@ -100,8 +100,9 @@ services:
       CHUNK_OVERLAP_TOKENS: "${CHUNK_OVERLAP_TOKENS:-100}"
       LOCAL_FILES_ENABLED: "${LOCAL_FILES_ENABLED:-false}"
       LOCAL_FILES_EXTENSIONS: "${LOCAL_FILES_EXTENSIONS:-.md,.txt,.html}"
-      OTEL_ENABLED: "${OTEL_ENABLED:-false}"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}"
+      MEDIA_ENABLED: "${MEDIA_ENABLED:-false}"
+      MEDIA_CAPTION_ENABLED: "${MEDIA_CAPTION_ENABLED:-false}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
     volumes:
       - ./data/confluence-files:/data/files:ro
 
