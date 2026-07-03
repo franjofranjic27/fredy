@@ -39,7 +39,7 @@ const baseMeta: PageMetadata = {
 describe("ingestLocalFiles", () => {
   let localFiles: { getAllFiles: Mock; extractMetadata: Mock };
   let embedding: { embed: Mock };
-  let qdrant: { initCollection: Mock; deletePageChunks: Mock; upsertChunks: Mock };
+  let store: { initSchema: Mock; deletePageChunks: Mock; upsertChunks: Mock };
 
   beforeEach(() => {
     localFiles = {
@@ -47,8 +47,8 @@ describe("ingestLocalFiles", () => {
       extractMetadata: vi.fn().mockReturnValue(baseMeta),
     };
     embedding = { embed: vi.fn().mockResolvedValue([[0.1, 0.2]]) };
-    qdrant = {
-      initCollection: vi.fn().mockResolvedValue(undefined),
+    store = {
+      initSchema: vi.fn().mockResolvedValue(undefined),
       deletePageChunks: vi.fn().mockResolvedValue(undefined),
       upsertChunks: vi.fn().mockResolvedValue(undefined),
     };
@@ -58,18 +58,18 @@ describe("ingestLocalFiles", () => {
     async function* empty() {}
     localFiles.getAllFiles.mockReturnValue(empty());
 
-    await ingestLocalFiles(localFiles as any, embedding as any, qdrant as any, {
+    await ingestLocalFiles(localFiles as any, embedding as any, store as any, {
       chunkingOptions: defaultChunking,
     });
 
-    expect(qdrant.initCollection).toHaveBeenCalledOnce();
+    expect(store.initSchema).toHaveBeenCalledOnce();
   });
 
   it("returns zero counts when no files exist", async () => {
     async function* empty() {}
     localFiles.getAllFiles.mockReturnValue(empty());
 
-    const result = await ingestLocalFiles(localFiles as any, embedding as any, qdrant as any, {
+    const result = await ingestLocalFiles(localFiles as any, embedding as any, store as any, {
       chunkingOptions: defaultChunking,
     });
 
@@ -85,7 +85,7 @@ describe("ingestLocalFiles", () => {
     }
     localFiles.getAllFiles.mockReturnValue(files());
 
-    const result = await ingestLocalFiles(localFiles as any, embedding as any, qdrant as any, {
+    const result = await ingestLocalFiles(localFiles as any, embedding as any, store as any, {
       chunkingOptions: defaultChunking,
     });
 
@@ -97,11 +97,11 @@ describe("ingestLocalFiles", () => {
     async function* files() { yield makeFile("doc.md", "<p>Hello</p>"); }
     localFiles.getAllFiles.mockReturnValue(files());
 
-    await ingestLocalFiles(localFiles as any, embedding as any, qdrant as any, {
+    await ingestLocalFiles(localFiles as any, embedding as any, store as any, {
       chunkingOptions: defaultChunking,
     });
 
-    expect(qdrant.deletePageChunks).toHaveBeenCalledWith(baseMeta.pageId);
+    expect(store.deletePageChunks).toHaveBeenCalledWith(baseMeta.pageId);
   });
 
   it("records file errors without aborting the run", async () => {
@@ -110,11 +110,11 @@ describe("ingestLocalFiles", () => {
       yield makeFile("good.md", "<p>Good content</p>");
     }
     localFiles.getAllFiles.mockReturnValue(files());
-    qdrant.deletePageChunks
+    store.deletePageChunks
       .mockRejectedValueOnce(new Error("write error"))
       .mockResolvedValue(undefined);
 
-    const result = await ingestLocalFiles(localFiles as any, embedding as any, qdrant as any, {
+    const result = await ingestLocalFiles(localFiles as any, embedding as any, store as any, {
       chunkingOptions: defaultChunking,
     });
 

@@ -100,8 +100,7 @@ export class ResponseRecorderService {
   }
 }
 
-function providerFromModel(model: string): "anthropic" | "openai" | "google.gemini" | "ollama" {
-  if (model.startsWith("claude-")) return "anthropic";
+function providerFromModel(model: string): "anthropic" | "openai" | "google.gemini" {
   if (model.startsWith("gemini-")) return "google.gemini";
   if (
     model.startsWith("gpt-") ||
@@ -111,5 +110,5 @@ function providerFromModel(model: string): "anthropic" | "openai" | "google.gemi
   ) {
     return "openai";
   }
-  return "ollama";
+  return "anthropic";
 }

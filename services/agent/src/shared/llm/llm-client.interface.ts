@@ -7,7 +7,7 @@ import {
   LlmStreamChunk,
 } from "./llm.types";
 
-export type LlmProviderId = "anthropic" | "openai" | "google.gemini" | "ollama";
+export type LlmProviderId = "anthropic" | "openai" | "google.gemini";
 
 export interface LlmClient {
   readonly providerId: LlmProviderId;

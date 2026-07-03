@@ -42,7 +42,7 @@ const baseMetadata = {
 describe("syncConfluence", () => {
   let confluence: { getModifiedPages: Mock; shouldIncludePage: Mock; extractMetadata: Mock };
   let embedding: { embed: Mock };
-  let qdrant: { deletePageChunks: Mock; upsertChunks: Mock };
+  let store: { deletePageChunks: Mock; upsertChunks: Mock };
 
   beforeEach(() => {
     confluence = {
@@ -51,14 +51,14 @@ describe("syncConfluence", () => {
       extractMetadata: vi.fn().mockReturnValue(baseMetadata),
     };
     embedding = { embed: vi.fn().mockResolvedValue([[0.1, 0.2]]) };
-    qdrant = {
+    store = {
       deletePageChunks: vi.fn().mockResolvedValue(undefined),
       upsertChunks: vi.fn().mockResolvedValue(undefined),
     };
   });
 
   it("returns zero counts when no pages were modified", async () => {
-    const result = await syncConfluence(confluence as any, embedding as any, qdrant as any, {
+    const result = await syncConfluence(confluence as any, embedding as any, store as any, {
       spaces: ["IT"],
       chunkingOptions: defaultChunking,
     });
@@ -69,7 +69,7 @@ describe("syncConfluence", () => {
   });
 
   it("includes a syncTime in the result", async () => {
-    const result = await syncConfluence(confluence as any, embedding as any, qdrant as any, {
+    const result = await syncConfluence(confluence as any, embedding as any, store as any, {
       spaces: [],
       chunkingOptions: defaultChunking,
     });
@@ -80,27 +80,27 @@ describe("syncConfluence", () => {
   it("updates a modified page and deletes its old chunks", async () => {
     confluence.getModifiedPages.mockResolvedValue([makePage("p1", "Updated Page")]);
 
-    const result = await syncConfluence(confluence as any, embedding as any, qdrant as any, {
+    const result = await syncConfluence(confluence as any, embedding as any, store as any, {
       spaces: ["IT"],
       chunkingOptions: defaultChunking,
     });
 
     expect(result.pagesUpdated).toBe(1);
-    expect(qdrant.deletePageChunks).toHaveBeenCalledWith("p1");
+    expect(store.deletePageChunks).toHaveBeenCalledWith("p1");
   });
 
   it("deletes chunks for pages now excluded by label filter", async () => {
     confluence.getModifiedPages.mockResolvedValue([makePage("p2", "Excluded Page")]);
     confluence.shouldIncludePage.mockReturnValue(false);
 
-    const result = await syncConfluence(confluence as any, embedding as any, qdrant as any, {
+    const result = await syncConfluence(confluence as any, embedding as any, store as any, {
       spaces: ["IT"],
       chunkingOptions: defaultChunking,
     });
 
     expect(result.pagesDeleted).toBe(1);
     expect(result.pagesUpdated).toBe(0);
-    expect(qdrant.deletePageChunks).toHaveBeenCalledWith("p2");
+    expect(store.deletePageChunks).toHaveBeenCalledWith("p2");
   });
 
   it("syncs pages across multiple spaces", async () => {
@@ -108,7 +108,7 @@ describe("syncConfluence", () => {
       .mockResolvedValueOnce([makePage("1", "IT Page")])
       .mockResolvedValueOnce([makePage("2", "DOCS Page")]);
 
-    const result = await syncConfluence(confluence as any, embedding as any, qdrant as any, {
+    const result = await syncConfluence(confluence as any, embedding as any, store as any, {
       spaces: ["IT", "DOCS"],
       chunkingOptions: defaultChunking,
     });
@@ -121,12 +121,12 @@ describe("syncConfluence", () => {
       makePage("bad", "Failing Page"),
       makePage("good", "Good Page"),
     ]);
-    qdrant.deletePageChunks
-      .mockRejectedValueOnce(new Error("qdrant error"))
+    store.deletePageChunks
+      .mockRejectedValueOnce(new Error("store error"))
       .mockResolvedValue(undefined);
 
     await expect(
-      syncConfluence(confluence as any, embedding as any, qdrant as any, {
+      syncConfluence(confluence as any, embedding as any, store as any, {
         spaces: ["IT"],
         chunkingOptions: defaultChunking,
       }),
@@ -135,7 +135,7 @@ describe("syncConfluence", () => {
 
   it("uses a 24-hour default lastSyncTime window", async () => {
     const before = new Date();
-    await syncConfluence(confluence as any, embedding as any, qdrant as any, {
+    await syncConfluence(confluence as any, embedding as any, store as any, {
       spaces: ["IT"],
       chunkingOptions: defaultChunking,
     });

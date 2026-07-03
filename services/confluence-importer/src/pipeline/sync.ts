@@ -1,6 +1,6 @@
 import type { ConfluenceClient } from "../confluence/index.js";
 import type { EmbeddingClient } from "../embeddings/index.js";
-import type { QdrantClient } from "../qdrant/index.js";
+import type { PgVectorClient } from "../pgvector/index.js";
 import { chunkHtmlContent } from "../chunking/index.js";
 import type { ChunkingOptions } from "../chunking/types.js";
 import type { ConfluencePage } from "../confluence/types.js";
@@ -35,14 +35,14 @@ async function syncPage(
   page: ConfluencePage,
   confluence: ConfluenceClient,
   embedding: EmbeddingClient,
-  qdrant: QdrantClient,
+  store: PgVectorClient,
   result: SyncResult,
   options: SyncPageOptions,
 ): Promise<void> {
   const { logger } = options;
   if (!confluence.shouldIncludePage(page, { includeLabels: options.includeLabels, excludeLabels: options.excludeLabels })) {
     logger?.info("Deleting page (excluded by label)", { title: page.title, pageId: page.id });
-    await qdrant.deletePageChunks(page.id);
+    await store.deletePageChunks(page.id);
     result.pagesDeleted++;
     return;
   }
@@ -51,12 +51,12 @@ async function syncPage(
   const metadata = confluence.extractMetadata(page);
   const chunks = chunkHtmlContent(page.body.storage.value, metadata, options.chunkingOptions);
 
-  await qdrant.deletePageChunks(page.id);
+  await store.deletePageChunks(page.id);
 
   if (chunks.length > 0) {
     const texts = chunks.map((c) => c.content);
     const embeddings = await embedding.embed(texts);
-    await qdrant.upsertChunks(chunks, embeddings);
+    await store.upsertChunks(chunks, embeddings);
   }
 
   result.pagesUpdated++;
@@ -69,7 +69,7 @@ async function syncPage(
 export async function syncConfluence(
   confluence: ConfluenceClient,
   embedding: EmbeddingClient,
-  qdrant: QdrantClient,
+  store: PgVectorClient,
   options: SyncOptions
 ): Promise<SyncResult> {
   const {
@@ -97,7 +97,7 @@ export async function syncConfluence(
 
       for (const page of modifiedPages) {
         try {
-          await syncPage(page, confluence, embedding, qdrant, result, pageOptions);
+          await syncPage(page, confluence, embedding, store, result, pageOptions);
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
           logger?.error("Failed to sync page", { title: page.title, pageId: page.id, error: errorMsg });

@@ -26,7 +26,7 @@ export interface AggregatedMetrics {
 export interface EvalReport {
   generatedAt: string;
   config: {
-    qdrantCollection: string;
+    vectorTable: string;
     embeddingProvider: string;
     embeddingModel: string;
     searchLimit: number;

@@ -1,5 +1,5 @@
 import type { AnthropicClient } from "./anthropic-client.js";
-import type { QdrantSampler } from "./qdrant-sampler.js";
+import type { PgVectorSampler } from "./pgvector-sampler.js";
 import type { GeneratorConfig, GoldenRecord, SampledChunk } from "./types.js";
 import { mapWithConcurrency } from "./concurrency.js";
 import { SeededRng } from "./rng.js";
@@ -16,7 +16,7 @@ export interface ProgressEvent {
 export type ProgressReporter = (event: ProgressEvent) => void;
 
 export interface GeneratorDeps {
-  readonly sampler: QdrantSampler;
+  readonly sampler: PgVectorSampler;
   readonly llm: AnthropicClient;
   readonly onProgress?: ProgressReporter;
   /**

@@ -1,13 +1,14 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { Tool, ToolDescription } from "./tool.interface";
+import { z } from "zod";
+import { ToolDefinition, ToolDescription } from "./tool.interface";
 
 @Injectable()
 export class ToolRegistryService {
   private readonly logger = new Logger(ToolRegistryService.name);
-  private readonly tools = new Map<string, Tool>();
+  private readonly tools = new Map<string, ToolDefinition>();
 
-  register(tool: Tool<any, any>): void {
-    const name = tool.description.name;
+  register(tool: ToolDefinition): void {
+    const name = tool.name;
     if (this.tools.has(name)) {
       throw new Error(`Tool "${name}" is already registered`);
     }
@@ -15,7 +16,7 @@ export class ToolRegistryService {
     this.logger.log(`Tool registered: ${name}`);
   }
 
-  getTool(name: string): Tool | undefined {
+  getTool(name: string): ToolDefinition | undefined {
     return this.tools.get(name);
   }
 
@@ -23,12 +24,21 @@ export class ToolRegistryService {
     return this.tools.has(name);
   }
 
-  getAllTools(): Tool[] {
+  getAllTools(): ToolDefinition[] {
     return Array.from(this.tools.values());
   }
 
   getDescriptions(): ToolDescription[] {
-    return this.getAllTools().map((t) => t.description);
+    return this.getAllTools().map((t) => ({
+      name: t.name,
+      description: t.description,
+      parametersJsonSchema: this.toJsonSchema(t),
+    }));
+  }
+
+  getJsonSchema(name: string): Record<string, unknown> | undefined {
+    const tool = this.tools.get(name);
+    return tool ? this.toJsonSchema(tool) : undefined;
   }
 
   listNames(): string[] {
@@ -37,5 +47,9 @@ export class ToolRegistryService {
 
   get size(): number {
     return this.tools.size;
+  }
+
+  private toJsonSchema(tool: ToolDefinition): Record<string, unknown> {
+    return z.toJSONSchema(tool.inputSchema) as Record<string, unknown>;
   }
 }

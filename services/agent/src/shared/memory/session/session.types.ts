@@ -18,4 +18,4 @@ export interface SessionStore {
 
 export const SESSION_STORE = Symbol("SESSION_STORE");
 
-export type SessionStoreType = "memory" | "redis";
+export type SessionStoreType = "memory";

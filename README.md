@@ -10,9 +10,8 @@ An AI Agent platform for exploring and implementing generative AI best practices
 |---------|-----|-------------|
 | Open-WebUI | http://localhost:3000 | Chat interface — talks to the Fredy agent |
 | Fredy Agent | http://localhost:8001 | OpenAI-compatible RAG agent (single model: `rag-agent`) |
-| Ollama | http://localhost:11434 | Local LLM runtime (optional, used by the agent) |
-| Qdrant | http://localhost:6333 | Vector database |
-| Confluence Importer | — | Background sync: Confluence / local files → Qdrant |
+| PostgreSQL / pgvector | localhost:5432 | Vector database (Fredy RAG + Open-WebUI) |
+| Confluence Importer | — | Background sync: Confluence / local files → pgvector |
 | Keycloak | http://localhost:8080 | OAuth provider for Open-WebUI |
 | Jaeger | http://localhost:16686 | OpenTelemetry trace viewer |
 
@@ -47,13 +46,13 @@ Navigate to **http://localhost:3000** and start chatting. Open-WebUI is wired to
 
 | Model in UI | What it does |
 |---|---|
-| `rag-agent` | Deterministic RAG agent — every answer is grounded in Confluence content stored in Qdrant. Picks its own LLM provider internally via `LLM_FALLBACK_MODEL`. |
+| `rag-agent` | Deterministic RAG agent — every answer is grounded in Confluence content stored in PostgreSQL/pgvector. Picks its own LLM provider internally via `LLM_FALLBACK_MODEL`. |
 
 New agents added under `services/agent/src/agents/` (e.g. a future `react-agent`) automatically show up here.
 
 ## Confluence Importer (optional)
 
-The `confluence-importer` container syncs documents into Qdrant so Open-WebUI can search them.
+The `confluence-importer` container syncs documents into PostgreSQL/pgvector so the agent can search them.
 
 ### Confluence ingestion
 
@@ -64,7 +63,7 @@ CONFLUENCE_BASE_URL=https://your-org.atlassian.net
 CONFLUENCE_USERNAME=you@example.com
 CONFLUENCE_API_TOKEN=your-token
 CONFLUENCE_SPACES=ENG,OPS          # comma-separated space keys
-EMBEDDING_PROVIDER=openai           # or anthropic
+EMBEDDING_PROVIDER=openai           # or voyage
 EMBEDDING_API_KEY=sk-...
 ```
 
@@ -96,7 +95,7 @@ docker compose pull               # Pull latest images
 
 ```
 services/              # Individual services
-  confluence-importer/ # Confluence → Qdrant ingestion (TypeScript)
+  confluence-importer/ # Confluence → pgvector ingestion (TypeScript)
   agent/               # AI agent (TypeScript, NestJS)
 packages/              # Shared workspace libraries
   common/              # Logger + OTel tracing helpers

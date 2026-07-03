@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import type { ConfluenceClient } from "../confluence/index.js";
 import type { EmbeddingClient } from "../embeddings/index.js";
-import type { QdrantClient } from "../qdrant/index.js";
+import type { PgVectorClient } from "../pgvector/index.js";
 import { syncConfluence } from "../pipeline/index.js";
 import type { ChunkingOptions } from "../chunking/types.js";
 import type { Logger } from "../logger.js";
@@ -18,7 +18,7 @@ export interface SchedulerConfig {
 export function startSyncScheduler(
   confluence: ConfluenceClient,
   embedding: EmbeddingClient,
-  qdrant: QdrantClient,
+  store: PgVectorClient,
   config: SchedulerConfig
 ): cron.ScheduledTask {
   const { logger } = config;
@@ -37,7 +37,7 @@ export function startSyncScheduler(
     logger?.info("Starting scheduled sync");
 
     try {
-      const result = await syncConfluence(confluence, embedding, qdrant, {
+      const result = await syncConfluence(confluence, embedding, store, {
         spaces: config.spaces,
         includeLabels: config.includeLabels,
         excludeLabels: config.excludeLabels,

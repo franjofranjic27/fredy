@@ -1,5 +1,9 @@
+import { ToolError } from "../../shared/tools/tool.interface";
 import { ToolRegistryService } from "../../shared/tools/tool-registry.service";
+import { fetchUrlInputSchema } from "./fetch-url.schema";
 import { FetchUrlTool } from "./fetch-url.tool";
+
+const ctx = { requestId: "r1" };
 
 describe("FetchUrlTool", () => {
   const originalFetch = globalThis.fetch;
@@ -14,14 +18,9 @@ describe("FetchUrlTool", () => {
     expect(registry.hasTool("fetch_url")).toBe(true);
   });
 
-  it("rejects non-http URLs without making a network call", async () => {
-    const fetchMock = jest.fn();
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
-    const tool = new FetchUrlTool(new ToolRegistryService());
-    const result = await tool.execute({ url: "file:///etc/passwd" });
+  it("schema rejects non-http URLs", () => {
+    const result = fetchUrlInputSchema.safeParse({ url: "file:///etc/passwd" });
     expect(result.success).toBe(false);
-    expect(result.output).toContain("must start with http");
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("returns truncated body when response exceeds maxChars", async () => {
@@ -30,19 +29,47 @@ describe("FetchUrlTool", () => {
       .fn()
       .mockResolvedValue(new Response(big, { status: 200 })) as unknown as typeof fetch;
     const tool = new FetchUrlTool(new ToolRegistryService());
-    const result = await tool.execute({ url: "https://example.com", maxChars: 100 });
-    expect(result.success).toBe(true);
+    const result = await tool.execute({ url: "https://example.com", maxChars: 100 }, ctx);
     expect(result.output.length).toBeLessThan(big.length);
     expect(result.output).toContain("[truncated]");
+    expect(result.data?.status).toBe(200);
   });
 
-  it("returns success:false when fetch throws", async () => {
+  it("throws upstream_error when fetch rejects", async () => {
     globalThis.fetch = jest
       .fn()
       .mockRejectedValue(new Error("ENOTFOUND")) as unknown as typeof fetch;
     const tool = new FetchUrlTool(new ToolRegistryService());
-    const result = await tool.execute({ url: "https://example.com" });
-    expect(result.success).toBe(false);
-    expect(result.output).toContain("ENOTFOUND");
+    await expect(tool.execute({ url: "https://example.com" }, ctx)).rejects.toMatchObject({
+      code: "upstream_error",
+      retryable: true,
+    });
+  });
+
+  it("throws upstream_error with retryable=true on 5xx", async () => {
+    globalThis.fetch = jest
+      .fn()
+      .mockResolvedValue(new Response("err", { status: 503 })) as unknown as typeof fetch;
+    const tool = new FetchUrlTool(new ToolRegistryService());
+    await expect(tool.execute({ url: "https://example.com" }, ctx)).rejects.toMatchObject({
+      code: "upstream_error",
+      retryable: true,
+    });
+  });
+
+  it("throws upstream_error with retryable=false on 4xx", async () => {
+    globalThis.fetch = jest
+      .fn()
+      .mockResolvedValue(new Response("nf", { status: 404 })) as unknown as typeof fetch;
+    const tool = new FetchUrlTool(new ToolRegistryService());
+    let caught: unknown;
+    try {
+      await tool.execute({ url: "https://example.com" }, ctx);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(ToolError);
+    expect((caught as ToolError).code).toBe("upstream_error");
+    expect((caught as ToolError).retryable).toBe(false);
   });
 });

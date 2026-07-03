@@ -27,11 +27,6 @@ export default () => ({
       apiKey: process.env.GEMINI_API_KEY,
       maxTokens: num(process.env.GEMINI_MAX_TOKENS, 4096),
     },
-    ollama: {
-      baseUrl: process.env.OLLAMA_BASE_URL ?? "http://localhost:11434",
-      model: process.env.OLLAMA_MODEL ?? "llama3.2",
-      models: process.env.OLLAMA_MODELS,
-    },
   },
   embedding: {
     provider: process.env.EMBEDDING_PROVIDER ?? "openai",
@@ -49,9 +44,9 @@ export default () => ({
       endpoint: process.env.EMBEDDING_VOYAGE_ENDPOINT,
     },
   },
-  qdrant: {
-    url: process.env.QDRANT_URL ?? "http://localhost:6333",
-    collection: process.env.QDRANT_COLLECTION ?? "confluence-pages",
+  database: {
+    url: process.env.DATABASE_URL ?? "postgresql://fredy:fredy@localhost:5432/fredy",
+    table: process.env.CHUNKS_TABLE ?? "chunks",
   },
   retrieval: {
     defaultLimit: num(process.env.RAG_DEFAULT_RETRIEVAL_LIMIT, 5),
@@ -59,8 +54,6 @@ export default () => ({
     tokenBudget: num(process.env.RAG_TOKEN_BUDGET, 3200),
   },
   session: {
-    storeType: process.env.SESSION_STORE_TYPE ?? "memory",
-    redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
     ttlMs: num(process.env.SESSION_TTL_MS, 30 * 60 * 1000),
   },
   auth: {

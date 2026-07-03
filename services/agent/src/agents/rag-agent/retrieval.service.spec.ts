@@ -1,7 +1,9 @@
 import { ConfigService } from "@nestjs/config";
+import { z } from "zod";
 import { ObservabilityService } from "../../shared/observability/observability.service";
+import { ToolExecutorService } from "../../shared/tools/tool-executor.service";
 import { ToolRegistryService } from "../../shared/tools/tool-registry.service";
-import { Tool, ToolResult } from "../../shared/tools/tool.interface";
+import { ToolDefinition, ToolError, ToolResult } from "../../shared/tools/tool.interface";
 import { QueryRewriteService } from "./query-rewrite.service";
 import { RetrievalService } from "./retrieval.service";
 
@@ -28,15 +30,30 @@ function createObservability(): ObservabilityService {
   } as unknown as ObservabilityService;
 }
 
-function makeTool(result: ToolResult, execute = jest.fn().mockResolvedValue(result)): Tool {
+function makeTool(
+  result: ToolResult,
+  execute = jest.fn().mockResolvedValue(result),
+): ToolDefinition {
   return {
-    description: {
-      name: "vector_search",
-      description: "search",
-      parametersJsonSchema: {},
-    },
+    name: "vector_search",
+    description: "search",
+    inputSchema: z.object({
+      query: z.string(),
+      limit: z.number().optional(),
+      spaceKey: z.string().optional(),
+    }),
     execute,
   };
+}
+
+function buildService(
+  registry: ToolRegistryService,
+  observability: ObservabilityService,
+  queryRewrite: QueryRewriteService,
+  config: ConfigService,
+): RetrievalService {
+  const executor = new ToolExecutorService(registry, observability);
+  return new RetrievalService(registry, executor, observability, queryRewrite, config);
 }
 
 describe("RetrievalService", () => {
@@ -51,7 +68,7 @@ describe("RetrievalService", () => {
   });
 
   it("returns null when vector_search is not registered", async () => {
-    const svc = new RetrievalService(registry, observability, queryRewrite, createConfig());
+    const svc = buildService(registry, observability, queryRewrite, createConfig());
     const result = await svc.getContext("anything", { requestId: "r1" });
     expect(result).toBeNull();
     expect(observability.log).toHaveBeenCalledWith(
@@ -60,14 +77,8 @@ describe("RetrievalService", () => {
   });
 
   it("returns null when vector_search is registered but not in allowedToolNames", async () => {
-    registry.register(
-      makeTool({
-        success: true,
-        output: "X",
-        metadata: { chunks: [{ id: "1" }] },
-      }),
-    );
-    const svc = new RetrievalService(registry, observability, queryRewrite, createConfig());
+    registry.register(makeTool({ output: "X", metadata: { chunks: [{ id: "1" }] } }));
+    const svc = buildService(registry, observability, queryRewrite, createConfig());
     const result = await svc.getContext("anything", {
       requestId: "r1",
       allowedToolNames: ["fetch_url"],
@@ -77,12 +88,11 @@ describe("RetrievalService", () => {
 
   it("invokes vector_search and returns concatenated context", async () => {
     const execute = jest.fn().mockResolvedValue({
-      success: true,
       output: "VPN setup steps...",
       metadata: { chunks: [{ id: "1", url: "https://wiki/vpn" }] },
     });
-    registry.register(makeTool({ success: true, output: "VPN setup steps..." }, execute));
-    const svc = new RetrievalService(
+    registry.register(makeTool({ output: "VPN setup steps..." }, execute));
+    const svc = buildService(
       registry,
       observability,
       queryRewrite,
@@ -92,6 +102,7 @@ describe("RetrievalService", () => {
     expect(result).toContain("VPN setup steps...");
     expect(execute).toHaveBeenCalledWith(
       expect.objectContaining({ query: "How do I VPN?", limit: 5 }),
+      expect.objectContaining({ requestId: "r1", agentId: "rag-agent" }),
     );
     expect(observability.log).toHaveBeenCalledWith(
       expect.objectContaining({ type: "retrieval", resultCount: 1 }),
@@ -101,15 +112,14 @@ describe("RetrievalService", () => {
   it("retries with the raw user message when query expansion yields nothing", async () => {
     const execute = jest
       .fn()
-      .mockResolvedValueOnce({ success: true, output: "", metadata: { chunks: [] } })
-      .mockResolvedValueOnce({ success: true, output: "", metadata: { chunks: [] } })
+      .mockResolvedValueOnce({ output: "", metadata: { chunks: [] } })
+      .mockResolvedValueOnce({ output: "", metadata: { chunks: [] } })
       .mockResolvedValueOnce({
-        success: true,
         output: "fallback hit",
         metadata: { chunks: [{ id: "z" }] },
       });
-    registry.register(makeTool({ success: true, output: "" }, execute));
-    const svc = new RetrievalService(registry, observability, queryRewrite, createConfig());
+    registry.register(makeTool({ output: "" }, execute));
+    const svc = buildService(registry, observability, queryRewrite, createConfig());
     const result = await svc.getContext("VPN setup? And WiFi password?", {
       requestId: "r1",
     });
@@ -119,13 +129,34 @@ describe("RetrievalService", () => {
 
   it("forwards spaceKey filter to the tool", async () => {
     const execute = jest.fn().mockResolvedValue({
-      success: true,
       output: "result",
       metadata: { chunks: [{ id: "1" }] },
     });
-    registry.register(makeTool({ success: true, output: "result" }, execute));
-    const svc = new RetrievalService(registry, observability, queryRewrite, createConfig());
+    registry.register(makeTool({ output: "result" }, execute));
+    const svc = buildService(registry, observability, queryRewrite, createConfig());
     await svc.getContext("test", { requestId: "r1", spaceKey: "IT" });
-    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ spaceKey: "IT" }));
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ spaceKey: "IT" }),
+      expect.anything(),
+    );
+  });
+
+  it("logs the error and returns null when the tool fails", async () => {
+    const execute = jest
+      .fn()
+      .mockRejectedValue(
+        new ToolError({ code: "upstream_error", message: "vector store down", retryable: true }),
+      );
+    registry.register(makeTool({ output: "" }, execute));
+    const svc = buildService(registry, observability, queryRewrite, createConfig());
+    const result = await svc.getContext("test", { requestId: "r1" });
+    expect(result).toBeNull();
+    expect(observability.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "retrieval",
+        resultCount: 0,
+        error: expect.objectContaining({ code: "upstream_error" }),
+      }),
+    );
   });
 });

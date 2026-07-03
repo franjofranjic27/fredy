@@ -1,0 +1,81 @@
+name: 🐛 Bug Report
+description: Einen Fehler oder ein unerwartetes Verhalten melden
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Danke für den Bug-Report. Bitte fülle die Felder möglichst vollständig aus.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Vorab-Check
+      options:
+        - label: Ich habe in bestehenden Issues nach Duplikaten gesucht.
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Beschreibung
+      description: Was ist passiert? Kurz und präzise.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: service
+    attributes:
+      label: Betroffener Service / Scope
+      options:
+        - confluence-importer
+        - agent
+        - mcp
+        - infra
+        - config
+        - unbekannt / cross-cutting
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduktionsschritte
+      description: Schritt-für-Schritt, um den Fehler auszulösen.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Erwartetes Verhalten
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Tatsächliches Verhalten
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Screenshots
+      description: Relevante Log-Ausgaben oder Screenshots (Logs bitte als Codeblock).
+      render: shell
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Umgebung
+      description: z. B. Docker-Version, Branch, OS.
+      placeholder: |
+        - Branch:
+        - Docker:
+        - OS:

@@ -1,0 +1,56 @@
+name: 🔧 Technische Aufgabe
+description: Refactoring, Chore, CI/CD, Build oder sonstige technische Arbeit
+title: "chore: "
+labels: ["task"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Beschreibung der Aufgabe
+      description: Was soll gemacht werden und warum?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Typ
+      options:
+        - refactor
+        - chore
+        - ci
+        - build
+        - test
+    validations:
+      required: true
+
+  - type: dropdown
+    id: service
+    attributes:
+      label: Betroffener Service / Scope
+      options:
+        - confluence-importer
+        - agent
+        - mcp
+        - infra
+        - config
+        - cross-cutting
+    validations:
+      required: true
+
+  - type: textarea
+    id: dod
+    attributes:
+      label: Definition of Done
+      description: Woran ist die Aufgabe abgeschlossen?
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Abhängigkeiten
+      description: Blockierende Issues oder Voraussetzungen.

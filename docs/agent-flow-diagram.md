@@ -12,7 +12,7 @@ Dieses Dokument beschreibt den vollständigen Ablauf einer Nutzeranfrage durch d
 | **Server** | Hono HTTP-Server | `server.ts` |
 | **Auth** | JWT- / API-Key-Middleware | `auth.ts` |
 | **RBAC** | Role-Based Access Control | `rbac.ts` |
-| **Session** | Session Store (Memory / Redis) | `session/` |
+| **Session** | Session Store (In-Memory) | `session/` |
 | **Agent** | Agenten-Orchestrierung (ReAct-Loop) | `agent.ts` |
 | **ModelClient** | LLM-Abstraktionsschicht | `llm/claude.ts` |
 | **Claude** | Anthropic Claude API | extern |
@@ -20,7 +20,7 @@ Dieses Dokument beschreibt den vollständigen Ablauf einer Nutzeranfrage durch d
 | **RAG-Tool** | `search_knowledge_base` | `tools/knowledge-base.ts` |
 | **Stats-Tool** | `get_knowledge_base_stats` | `tools/ops-tools.ts` |
 | **EmbeddingAPI** | OpenAI / Voyage Embeddings | extern |
-| **Qdrant** | Vektordatenbank | extern |
+| **pgvector** | PostgreSQL-Vektordatenbank (Tabelle `chunks`) | extern |
 
 ---
 
@@ -127,15 +127,14 @@ Der Agent iteriert maximal `maxIterations` (Standard: 10) Mal durch den folgende
         { model: "text-embedding-3-small", input: query }
       → Rückgabe: Vektor [0.12, -0.34, ...]  (z. B. 1536 Dimensionen)
 
-12. RAG-Tool → Qdrant
-      POST /collections/confluence-pages/points/search
-        {
-          vector: <queryVector>,
-          limit: 5,
-          with_payload: true,
-          score_threshold: 0.7,
-          filter: { must: [{ key: "spaceKey", match: ... }] }  // optional
-        }
+12. RAG-Tool → PostgreSQL / pgvector (Tabelle `chunks`)
+      SELECT chunk_id, title, content, url, space_key,
+             1 - (embedding <=> $1) AS score
+        FROM chunks
+       WHERE 1 - (embedding <=> $1) >= 0.7
+         AND space_key = $2            -- optional
+    ORDER BY embedding <=> $1
+       LIMIT 5;
       → Rückgabe: Top-K ähnlichste Dokument-Chunks
           [{ title, content, url, spaceKey, score }, ...]
 
@@ -152,12 +151,12 @@ Der Agent iteriert maximal `maxIterations` (Standard: 10) Mal durch den folgende
 ```
 15. Stats-Tool aufgerufen (keine Parameter)
 
-16. Stats-Tool → Qdrant
-      GET  /collections/confluence-pages          → totalChunks
-      POST /collections/confluence-pages/points/scroll  → alle spaceKeys paginiert
+16. Stats-Tool → PostgreSQL / pgvector (Tabelle `chunks`)
+      SELECT count(*) FROM chunks                              → totalChunks
+      SELECT space_key, count(*) FROM chunks GROUP BY space_key → spaceKey-Verteilung
 
 17. Stats-Tool → Agent:
-      { collection, totalChunks, spaces: [{spaceKey, chunkCount}], status }
+      { table, totalChunks, spaces: [{spaceKey, chunkCount}], status }
 ```
 
 ### Phase 6 – Antwort-Ausgabe
@@ -222,10 +221,10 @@ Agent.runAgent()
                  │
                  ├─ search_knowledge_base:
                  │    ├─ Query → Embedding API → Vektor
-                 │    └─ Vektor → Qdrant → Top-K Chunks
+                 │    └─ Vektor → pgvector (chunks) → Top-K Chunks
                  │
                  └─ get_knowledge_base_stats:
-                      └─ Qdrant → Statistiken
+                      └─ pgvector (chunks) → Statistiken
                  │
                  └─ Tool-Ergebnisse in Kontext einbetten
                  └─ Nächste Iteration ↑
@@ -245,9 +244,9 @@ Response → Client
 | Aspekt | Implementierung | Relevanz |
 |--------|----------------|----------|
 | **Streaming** | SSE (Server-Sent Events) – Token-Deltas ab erstem LLM-Aufruf | Zeigt wahrgenommene Schnelligkeit |
-| **Model-Abstraktion** | `LLMClient`-Interface – austauschbar (Claude / Ollama) | Zeigt Entkoppelung vom Anbieter |
+| **Model-Abstraktion** | `LLMClient`-Interface – austauschbar (Claude / OpenAI / Gemini) | Zeigt Entkoppelung vom Anbieter |
 | **ReAct-Muster** | Iterativer Loop mit Tool-Feedback | Zentrale Architektur-Eigenschaft |
 | **Parallele Tools** | `Promise.all()` für mehrere Tool-Calls pro Iteration | Effizienz-Aspekt |
-| **Session** | In-Memory (TTL 30 Min.) oder Redis | Gesprächsgedächtnis |
+| **Session** | In-Memory (TTL 30 Min.) | Gesprächsgedächtnis |
 | **RBAC** | Rolle aus JWT → gefiltertes ToolRegistry | Sicherheitsmerkmal |
 | **RAG-Embedding** | Nutzerprompt wird vektorisiert, nicht die Antwort | Kernprinzip der semantischen Suche |

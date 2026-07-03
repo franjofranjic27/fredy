@@ -1,7 +1,7 @@
 import type { LocalFileClient } from "../local/index.js";
 import { localFileToHtml } from "../local/index.js";
 import type { EmbeddingClient } from "../embeddings/index.js";
-import type { QdrantClient } from "../qdrant/index.js";
+import type { PgVectorClient } from "../pgvector/index.js";
 import { chunkHtmlContent } from "../chunking/index.js";
 import type { Chunk, ChunkingOptions } from "../chunking/types.js";
 import type { Logger } from "../logger.js";
@@ -22,7 +22,7 @@ export interface IngestLocalResult {
 export async function ingestLocalFiles(
   localFiles: LocalFileClient,
   embedding: EmbeddingClient,
-  qdrant: QdrantClient,
+  store: PgVectorClient,
   options: IngestLocalOptions,
 ): Promise<IngestLocalResult> {
   const { chunkingOptions, batchSize = 10, logger } = options;
@@ -33,7 +33,7 @@ export async function ingestLocalFiles(
     errors: [],
   };
 
-  await qdrant.initCollection();
+  await store.initSchema();
 
   logger?.info("Processing local files");
 
@@ -48,14 +48,14 @@ export async function ingestLocalFiles(
       const chunks = chunkHtmlContent(html, metadata, chunkingOptions);
       logger?.debug("Chunks created", { path: file.relativePath, count: chunks.length });
 
-      await qdrant.deletePageChunks(metadata.pageId);
+      await store.deletePageChunks(metadata.pageId);
 
       chunksBuffer.push(...chunks);
       result.filesProcessed++;
       result.chunksCreated += chunks.length;
 
       if (chunksBuffer.length >= batchSize) {
-        await processChunkBatch(chunksBuffer.splice(0, batchSize), embedding, qdrant, logger);
+        await processChunkBatch(chunksBuffer.splice(0, batchSize), embedding, store, logger);
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -65,7 +65,7 @@ export async function ingestLocalFiles(
   }
 
   if (chunksBuffer.length > 0) {
-    await processChunkBatch(chunksBuffer, embedding, qdrant, logger);
+    await processChunkBatch(chunksBuffer, embedding, store, logger);
   }
 
   return result;

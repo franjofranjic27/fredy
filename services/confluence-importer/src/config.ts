@@ -30,11 +30,10 @@ const ConfigSchema = z.object({
     dimensions: z.number().default(1536),
   }),
 
-  // Qdrant settings
-  qdrant: z.object({
-    url: z.string().default("http://localhost:6333"),
-    collectionName: z.string().default("confluence-pages"),
-    apiKey: z.string().optional(),
+  // Database settings (PostgreSQL + pgvector)
+  database: z.object({
+    url: z.string().default("postgresql://fredy:fredy@localhost:5432/fredy"),
+    table: z.string().default("chunks"),
   }),
 
   // Chunking settings
@@ -88,10 +87,9 @@ export function loadConfig(): Config {
       model: process.env.EMBEDDING_MODEL ?? "text-embedding-3-small",
       dimensions: Number.parseInt(process.env.EMBEDDING_DIMENSIONS ?? "1536", 10),
     },
-    qdrant: {
-      url: process.env.QDRANT_URL ?? "http://localhost:6333",
-      collectionName: process.env.QDRANT_COLLECTION ?? "confluence-pages",
-      apiKey: process.env.QDRANT_API_KEY || undefined,
+    database: {
+      url: process.env.DATABASE_URL ?? "postgresql://fredy:fredy@localhost:5432/fredy",
+      table: process.env.CHUNKS_TABLE ?? "chunks",
     },
     chunking: {
       maxTokens: Number.parseInt(process.env.CHUNK_MAX_TOKENS ?? "800", 10),

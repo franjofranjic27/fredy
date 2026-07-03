@@ -8,7 +8,7 @@ export function formatSummary(report: EvalReport): string {
   lines.push("=".repeat(50));
   lines.push(`Generated:        ${report.generatedAt}`);
   lines.push(`Dataset:          ${dataset.path} (${dataset.queryCount} queries)`);
-  lines.push(`Qdrant:           ${config.qdrantCollection}`);
+  lines.push(`Vector table:     ${config.vectorTable}`);
   lines.push(`Embedding:        ${config.embeddingProvider} / ${config.embeddingModel}`);
   lines.push(`Search limit:     ${config.searchLimit}`);
   lines.push(`Score threshold:  ${config.scoreThreshold}`);
@@ -37,11 +37,8 @@ function fmt(value: number | undefined): string {
 }
 
 function renderTable(header: string[], rows: string[][]): string {
-  const widths = header.map((h, i) =>
-    Math.max(h.length, ...rows.map((row) => row[i].length)),
-  );
-  const fmtRow = (cells: string[]) =>
-    cells.map((c, i) => c.padEnd(widths[i], " ")).join("  ");
+  const widths = header.map((h, i) => Math.max(h.length, ...rows.map((row) => row[i].length)));
+  const fmtRow = (cells: string[]) => cells.map((c, i) => c.padEnd(widths[i], " ")).join("  ");
   const sep = widths.map((w) => "-".repeat(w)).join("  ");
   return [fmtRow(header), sep, ...rows.map(fmtRow)].join("\n");
 }

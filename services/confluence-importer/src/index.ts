@@ -1,8 +1,8 @@
 import { loadConfig } from "./config.js";
 import { ConfluenceClient } from "./confluence/index.js";
 import { createEmbeddingClient } from "./embeddings/index.js";
-import { QdrantClient } from "./qdrant/index.js";
-import { ingestConfluenceToQdrant, syncConfluence, ingestLocalFiles } from "./pipeline/index.js";
+import { PgVectorClient } from "./pgvector/index.js";
+import { ingestConfluence, syncConfluence, ingestLocalFiles } from "./pipeline/index.js";
 import { LocalFileClient } from "./local/index.js";
 import { startSyncScheduler } from "./scheduler/cron.js";
 import { createLogger } from "./logger.js";
@@ -45,7 +45,7 @@ type EmbeddingClient = ReturnType<typeof createEmbeddingClient>;
 
 function printHelp(): void {
   console.log(`
-Fredy RAG - Confluence & Local Files to Qdrant Pipeline
+Fredy RAG - Confluence & Local Files to PostgreSQL/pgvector Pipeline
 
 Commands:
   ingest    Full ingestion of configured sources
@@ -67,8 +67,8 @@ Environment variables required:
   EMBEDDING_API_KEY        API key for embedding provider
   EMBEDDING_MODEL          Model name (e.g., text-embedding-3-small)
 
-  QDRANT_URL              Qdrant URL (default: http://localhost:6333)
-  QDRANT_COLLECTION       Collection name (default: confluence-pages)
+  DATABASE_URL            PostgreSQL URL (default: postgresql://fredy:fredy@localhost:5432/fredy)
+  CHUNKS_TABLE            Chunks table name (default: chunks)
 
 Optional:
   CONFLUENCE_INCLUDE_LABELS   Only include pages with these labels
@@ -94,7 +94,7 @@ async function handleIngest(
   localFileClient: LocalFileClient | null,
   config: Config,
   embedding: EmbeddingClient,
-  qdrant: QdrantClient,
+  store: PgVectorClient,
   source: Source,
   logger: Logger,
 ): Promise<void> {
@@ -109,7 +109,7 @@ async function handleIngest(
         : {}),
     });
 
-    const result = await ingestConfluenceToQdrant(confluence, embedding, qdrant, {
+    const result = await ingestConfluence(confluence, embedding, store, {
       spaces: config.confluence.spaces,
       includeLabels: config.confluence.includeLabels,
       excludeLabels: config.confluence.excludeLabels,
@@ -136,7 +136,7 @@ async function handleIngest(
       extensions: config.localFiles.extensions.join(", "),
     });
 
-    const result = await ingestLocalFiles(localFileClient, embedding, qdrant, {
+    const result = await ingestLocalFiles(localFileClient, embedding, store, {
       chunkingOptions: config.chunking,
       logger,
     });
@@ -158,17 +158,19 @@ async function handleSync(
   confluence: ConfluenceClient | null,
   config: Config,
   embedding: EmbeddingClient,
-  qdrant: QdrantClient,
+  store: PgVectorClient,
   logger: Logger,
 ): Promise<void> {
   if (!confluence || !config.confluence) {
-    logger.error("Confluence not configured — sync is only available for Confluence sources. Set CONFLUENCE_BASE_URL to enable.");
+    logger.error(
+      "Confluence not configured — sync is only available for Confluence sources. Set CONFLUENCE_BASE_URL to enable.",
+    );
     process.exit(1);
   }
 
   logger.info("Starting incremental sync");
 
-  const result = await syncConfluence(confluence, embedding, qdrant, {
+  const result = await syncConfluence(confluence, embedding, store, {
     spaces: config.confluence.spaces,
     includeLabels: config.confluence.includeLabels,
     excludeLabels: config.confluence.excludeLabels,
@@ -186,7 +188,7 @@ async function handleSync(
 async function handleSearch(
   query: string | undefined,
   embedding: EmbeddingClient,
-  qdrant: QdrantClient,
+  store: PgVectorClient,
 ): Promise<void> {
   if (!query) {
     console.error("Usage: search <query>");
@@ -195,9 +197,9 @@ async function handleSearch(
 
   console.log(`Searching for: "${query}"\n`);
 
-  await qdrant.initCollection();
+  await store.initSchema();
   const queryVector = await embedding.embedSingle(query);
-  const results = await qdrant.search(queryVector, { limit: 5 });
+  const results = await store.search(queryVector, { limit: 5 });
 
   if (results.length === 0) {
     console.log("No results found.");
@@ -214,11 +216,11 @@ async function handleSearch(
   }
 }
 
-async function handleInfo(qdrant: QdrantClient, config: Config): Promise<void> {
-  await qdrant.initCollection();
-  const info = await qdrant.getCollectionInfo();
+async function handleInfo(store: PgVectorClient, config: Config): Promise<void> {
+  await store.initSchema();
+  const info = await store.getCollectionInfo();
   console.log("=== Collection Info ===");
-  console.log(`Collection: ${config.qdrant.collectionName}`);
+  console.log(`Collection: ${config.database.table}`);
   console.log(`Points count: ${info.pointsCount}`);
   console.log(`Indexed vectors: ${info.indexedVectorsCount}`);
 }
@@ -226,10 +228,10 @@ async function handleInfo(qdrant: QdrantClient, config: Config): Promise<void> {
 async function diagnoseConfluenceComparison(
   confluence: ConfluenceClient,
   config: Config,
-  qdrant: QdrantClient,
+  store: PgVectorClient,
 ): Promise<void> {
   console.log("\n=== 3. Confluence Comparison ===");
-  const storedIds = new Set(await qdrant.listStoredPageIds());
+  const storedIds = new Set(await store.listStoredPageIds());
   console.log(`Stored page IDs:  ${storedIds.size}`);
 
   for (const spaceKey of config.confluence!.spaces) {
@@ -245,7 +247,7 @@ async function diagnoseConfluenceComparison(
     }
 
     console.log(`    Confluence pages: ${confluenceCount}`);
-    console.log(`    Missing in Qdrant: ${missingCount}`);
+    console.log(`    Missing in store: ${missingCount}`);
     if (missingCount > 0) {
       console.log(`    ⚠  ${missingCount} page(s) not indexed`);
     }
@@ -260,7 +262,9 @@ function diagnoseSampleChunks(samples: Chunk[]): void {
   }
   for (const chunk of samples) {
     console.log(`  [${chunk.metadata.spaceKey}] ${chunk.metadata.title}`);
-    console.log(`    chunk ${chunk.metadata.chunkIndex + 1}/${chunk.metadata.totalChunks} — ${chunk.content.slice(0, 120).replaceAll("\n", " ")}…`);
+    console.log(
+      `    chunk ${chunk.metadata.chunkIndex + 1}/${chunk.metadata.totalChunks} — ${chunk.content.slice(0, 120).replaceAll("\n", " ")}…`,
+    );
   }
 }
 
@@ -273,7 +277,9 @@ function diagnoseHints(
   if (info.pointsCount === 0) {
     console.log("  • Collection is empty — run 'pnpm start ingest' to populate it.");
   } else if (info.indexedVectorsCount < info.pointsCount) {
-    console.log(`  • ${info.pointsCount - info.indexedVectorsCount} chunk(s) not yet indexed — Qdrant may still be building indexes.`);
+    console.log(
+      `  • ${info.pointsCount - info.indexedVectorsCount} chunk(s) not yet indexed — index build may still be in progress.`,
+    );
   } else {
     console.log("  • Collection looks healthy.");
   }
@@ -285,19 +291,19 @@ function diagnoseHints(
 async function handleDiagnose(
   confluence: ConfluenceClient | null,
   config: Config,
-  qdrant: QdrantClient,
+  store: PgVectorClient,
 ): Promise<void> {
-  await qdrant.initCollection();
+  await store.initSchema();
 
   // 1. Collection stats
-  const info = await qdrant.getCollectionInfo();
+  const info = await store.getCollectionInfo();
   console.log("=== 1. Collection Stats ===");
-  console.log(`Collection:       ${config.qdrant.collectionName}`);
+  console.log(`Collection:       ${config.database.table}`);
   console.log(`Total chunks:     ${info.pointsCount}`);
   console.log(`Indexed vectors:  ${info.indexedVectorsCount}`);
 
   // 2. Breakdown per space
-  const bySpace = await qdrant.countBySpace();
+  const bySpace = await store.countBySpace();
   const spaceKeys = Object.keys(bySpace).sort((a, b) => a.localeCompare(b));
   console.log("\n=== 2. Chunks per Space ===");
   if (spaceKeys.length === 0) {
@@ -310,14 +316,14 @@ async function handleDiagnose(
 
   // 3. Confluence comparison (if configured)
   if (confluence && config.confluence) {
-    await diagnoseConfluenceComparison(confluence, config, qdrant);
+    await diagnoseConfluenceComparison(confluence, config, store);
   } else {
     console.log("\n=== 3. Confluence Comparison ===");
     console.log("  (Confluence not configured — skipped)");
   }
 
   // 4. Sample recent chunks
-  const samples = await qdrant.sampleRecentChunks(3);
+  const samples = await store.sampleRecentChunks(3);
   diagnoseSampleChunks(samples);
 
   // 5. Diagnostic hints
@@ -329,18 +335,18 @@ async function handleDaemon(
   localFileClient: LocalFileClient | null,
   config: Config,
   embedding: EmbeddingClient,
-  qdrant: QdrantClient,
+  store: PgVectorClient,
   logger: Logger,
 ): Promise<void> {
   logger.info("Starting RAG daemon");
 
-  await qdrant.initCollection();
+  await store.initSchema();
 
   if (config.sync.fullSyncOnStart) {
     logger.info("Running initial full ingestion");
 
     if (confluence && config.confluence) {
-      await ingestConfluenceToQdrant(confluence, embedding, qdrant, {
+      await ingestConfluence(confluence, embedding, store, {
         spaces: config.confluence.spaces,
         includeLabels: config.confluence.includeLabels,
         excludeLabels: config.confluence.excludeLabels,
@@ -350,7 +356,7 @@ async function handleDaemon(
     }
 
     if (localFileClient) {
-      await ingestLocalFiles(localFileClient, embedding, qdrant, {
+      await ingestLocalFiles(localFileClient, embedding, store, {
         chunkingOptions: config.chunking,
         logger,
       });
@@ -358,7 +364,7 @@ async function handleDaemon(
   }
 
   if (confluence && config.confluence) {
-    const task = startSyncScheduler(confluence, embedding, qdrant, {
+    const task = startSyncScheduler(confluence, embedding, store, {
       cronSchedule: config.sync.cronSchedule,
       spaces: config.confluence.spaces,
       includeLabels: config.confluence.includeLabels,
@@ -418,31 +424,30 @@ async function main() {
     dimensions: config.embedding.dimensions,
   });
 
-  const qdrant = new QdrantClient({
-    url: config.qdrant.url,
-    collectionName: config.qdrant.collectionName,
-    apiKey: config.qdrant.apiKey,
+  const store = new PgVectorClient({
+    databaseUrl: config.database.url,
+    tableName: config.database.table,
     vectorSize: config.embedding.dimensions,
   });
 
   switch (command) {
     case "ingest":
-      await handleIngest(confluence, localFileClient, config, embedding, qdrant, source, logger);
+      await handleIngest(confluence, localFileClient, config, embedding, store, source, logger);
       break;
     case "sync":
-      await handleSync(confluence, config, embedding, qdrant, logger);
+      await handleSync(confluence, config, embedding, store, logger);
       break;
     case "search":
-      await handleSearch(query, embedding, qdrant);
+      await handleSearch(query, embedding, store);
       break;
     case "info":
-      await handleInfo(qdrant, config);
+      await handleInfo(store, config);
       break;
     case "diagnose":
-      await handleDiagnose(confluence, config, qdrant);
+      await handleDiagnose(confluence, config, store);
       break;
     case "daemon":
-      await handleDaemon(confluence, localFileClient, config, embedding, qdrant, logger);
+      await handleDaemon(confluence, localFileClient, config, embedding, store, logger);
       break;
     default:
       console.error(`Unknown command: ${command}`);

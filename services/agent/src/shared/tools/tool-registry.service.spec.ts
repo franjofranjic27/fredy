@@ -1,16 +1,15 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { Tool, ToolResult } from "./tool.interface";
+import { z } from "zod";
+import { ToolDefinition, ToolResult } from "./tool.interface";
 import { ToolRegistryService } from "./tool-registry.service";
 
-function makeTool(name: string): Tool {
+function makeTool(name: string): ToolDefinition {
   return {
-    description: {
-      name,
-      description: `Test tool ${name}`,
-      parametersJsonSchema: { type: "object", properties: {} },
-    },
+    name,
+    description: `Test tool ${name}`,
+    inputSchema: z.object({ query: z.string().optional() }),
     async execute(): Promise<ToolResult> {
-      return { success: true, output: name };
+      return { output: name };
     },
   };
 }
@@ -42,11 +41,26 @@ describe("ToolRegistryService", () => {
     expect(() => registry.register(makeTool("vector_search"))).toThrow(/already registered/);
   });
 
-  it("exposes descriptions and names in registration order", () => {
+  it("exposes descriptions with JSON schema derived from Zod input schema", () => {
     registry.register(makeTool("a"));
     registry.register(makeTool("b"));
     expect(registry.listNames()).toEqual(["a", "b"]);
-    expect(registry.getDescriptions().map((d) => d.name)).toEqual(["a", "b"]);
+    const descriptions = registry.getDescriptions();
+    expect(descriptions.map((d) => d.name)).toEqual(["a", "b"]);
+    expect(descriptions[0].parametersJsonSchema).toMatchObject({
+      type: "object",
+      properties: { query: expect.any(Object) },
+    });
+  });
+
+  it("getJsonSchema returns the JSON schema for a registered tool", () => {
+    registry.register(makeTool("vector_search"));
+    const schema = registry.getJsonSchema("vector_search");
+    expect(schema).toMatchObject({ type: "object" });
+  });
+
+  it("getJsonSchema returns undefined for unknown tools", () => {
+    expect(registry.getJsonSchema("missing")).toBeUndefined();
   });
 
   it("reports size", () => {

@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { AnthropicClient } from "./anthropic-client.js";
-import { QdrantSampler } from "./qdrant-sampler.js";
+import { PgVectorSampler } from "./pgvector-sampler.js";
 import { generateDataset } from "./index.js";
 import type { GeneratorConfig } from "./types.js";
 
@@ -103,15 +103,10 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
   const apiKey = requireEnv("ANTHROPIC_API_KEY");
-  const qdrantUrl = process.env.QDRANT_URL ?? "http://localhost:6333";
-  const qdrantCollection = process.env.QDRANT_COLLECTION ?? "confluence-pages";
-  const qdrantApiKey = process.env.QDRANT_API_KEY || undefined;
+  const databaseUrl = process.env.DATABASE_URL ?? "postgresql://fredy:fredy@localhost:5432/fredy";
+  const tableName = process.env.CHUNKS_TABLE ?? "chunks";
 
-  const sampler = new QdrantSampler({
-    url: qdrantUrl,
-    collectionName: qdrantCollection,
-    apiKey: qdrantApiKey,
-  });
+  const sampler = new PgVectorSampler({ databaseUrl, tableName });
   const llm = new AnthropicClient({ apiKey });
 
   const config: GeneratorConfig = {
@@ -126,21 +121,25 @@ async function main(): Promise<void> {
     `Generating ${config.count} queries (seed=${config.seed}, concurrency=${config.concurrency})\n`,
   );
 
-  const records = await generateDataset(config, {
-    sampler,
-    llm,
-    verifyNeighbours: args.verifyNeighbours,
-    onProgress: (event) => {
-      const tag = event.status === "ok" ? "generated" : "skipped";
-      const reason = event.reason ? ` (${event.reason})` : "";
-      process.stderr.write(`[${event.index}/${event.total}] ${tag} ${event.queryId}${reason}\n`);
-    },
-  });
+  try {
+    const records = await generateDataset(config, {
+      sampler,
+      llm,
+      verifyNeighbours: args.verifyNeighbours,
+      onProgress: (event) => {
+        const tag = event.status === "ok" ? "generated" : "skipped";
+        const reason = event.reason ? ` (${event.reason})` : "";
+        process.stderr.write(`[${event.index}/${event.total}] ${tag} ${event.queryId}${reason}\n`);
+      },
+    });
 
-  process.stderr.write(
-    `Done: ${records.length} records written to ${config.outputPath} ` +
-      `(${config.count - records.length} skipped)\n`,
-  );
+    process.stderr.write(
+      `Done: ${records.length} records written to ${config.outputPath} ` +
+        `(${config.count - records.length} skipped)\n`,
+    );
+  } finally {
+    await sampler.close();
+  }
 }
 
 main().catch((error: unknown) => {

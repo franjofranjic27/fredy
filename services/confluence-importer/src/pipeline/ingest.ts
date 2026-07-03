@@ -1,6 +1,6 @@
 import type { ConfluenceClient } from "../confluence/index.js";
 import type { EmbeddingClient } from "../embeddings/index.js";
-import type { QdrantClient } from "../qdrant/index.js";
+import type { PgVectorClient } from "../pgvector/index.js";
 import { chunkHtmlContent } from "../chunking/index.js";
 import type { Chunk, ChunkingOptions } from "../chunking/types.js";
 import type { ConfluencePage } from "../confluence/types.js";
@@ -42,7 +42,7 @@ async function processPage(
   page: ConfluencePage,
   confluence: ConfluenceClient,
   embedding: EmbeddingClient,
-  qdrant: QdrantClient,
+  store: PgVectorClient,
   context: ProcessContext,
   options: PageProcessOptions,
 ): Promise<void> {
@@ -63,7 +63,7 @@ async function processPage(
   const chunks = chunkHtmlContent(page.body.storage.value, metadata, options.chunkingOptions);
   logger?.debug("Chunks created", { title: page.title, count: chunks.length });
 
-  await qdrant.deletePageChunks(page.id);
+  await store.deletePageChunks(page.id);
   context.chunksBuffer.push(...chunks);
   context.result.pagesProcessed++;
   context.result.chunksCreated += chunks.length;
@@ -72,7 +72,7 @@ async function processPage(
     await processChunkBatch(
       context.chunksBuffer.splice(0, options.batchSize),
       embedding,
-      qdrant,
+      store,
       logger,
     );
   }
@@ -82,7 +82,7 @@ async function processSpace(
   spaceKey: string,
   confluence: ConfluenceClient,
   embedding: EmbeddingClient,
-  qdrant: QdrantClient,
+  store: PgVectorClient,
   pageOptions: PageProcessOptions,
   result: IngestResult,
 ): Promise<void> {
@@ -92,7 +92,7 @@ async function processSpace(
 
   for await (const page of confluence.getAllPagesInSpace(spaceKey)) {
     try {
-      await processPage(page, confluence, embedding, qdrant, context, pageOptions);
+      await processPage(page, confluence, embedding, store, context, pageOptions);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       logger?.error("Failed to process page", {
@@ -105,14 +105,14 @@ async function processSpace(
   }
 
   if (context.chunksBuffer.length > 0) {
-    await processChunkBatch(context.chunksBuffer, embedding, qdrant, logger);
+    await processChunkBatch(context.chunksBuffer, embedding, store, logger);
   }
 }
 
-export async function ingestConfluenceToQdrant(
+export async function ingestConfluence(
   confluence: ConfluenceClient,
   embedding: EmbeddingClient,
-  qdrant: QdrantClient,
+  store: PgVectorClient,
   options: IngestOptions,
 ): Promise<IngestResult> {
   const { spaces, includeLabels, excludeLabels, chunkingOptions, batchSize = 10, logger } = options;
@@ -136,10 +136,10 @@ export async function ingestConfluenceToQdrant(
   const span = tracer.startSpan("rag.ingest");
 
   try {
-    await qdrant.initCollection();
+    await store.initSchema();
 
     for (const spaceKey of spaces) {
-      await processSpace(spaceKey, confluence, embedding, qdrant, pageOptions, result);
+      await processSpace(spaceKey, confluence, embedding, store, pageOptions, result);
     }
 
     span.setAttribute("pages_processed", result.pagesProcessed);

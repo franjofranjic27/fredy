@@ -13,9 +13,8 @@ const ENV_KEYS = [
   "CONFLUENCE_SPACES",
   "CONFLUENCE_INCLUDE_LABELS",
   "CONFLUENCE_EXCLUDE_LABELS",
-  "QDRANT_URL",
-  "QDRANT_COLLECTION",
-  "QDRANT_API_KEY",
+  "DATABASE_URL",
+  "CHUNKS_TABLE",
   "CHUNK_MAX_TOKENS",
   "CHUNK_OVERLAP_TOKENS",
   "CHUNK_PRESERVE_CODE",
@@ -78,21 +77,18 @@ describe("loadConfig", () => {
     expect(loadConfig().embedding.dimensions).toBe(768);
   });
 
-  it("applies qdrant defaults", () => {
+  it("applies database defaults", () => {
     const config = loadConfig();
-    expect(config.qdrant.url).toBe("http://localhost:6333");
-    expect(config.qdrant.collectionName).toBe("confluence-pages");
-    expect(config.qdrant.apiKey).toBeUndefined();
+    expect(config.database.url).toBe("postgresql://fredy:fredy@localhost:5432/fredy");
+    expect(config.database.table).toBe("chunks");
   });
 
-  it("overrides qdrant settings via env vars", () => {
-    process.env.QDRANT_URL = "http://qdrant:6333";
-    process.env.QDRANT_COLLECTION = "my-collection";
-    process.env.QDRANT_API_KEY = "qdrant-key";
+  it("overrides database settings via env vars", () => {
+    process.env.DATABASE_URL = "postgresql://user:pass@db:5432/rag";
+    process.env.CHUNKS_TABLE = "my_chunks";
     const config = loadConfig();
-    expect(config.qdrant.url).toBe("http://qdrant:6333");
-    expect(config.qdrant.collectionName).toBe("my-collection");
-    expect(config.qdrant.apiKey).toBe("qdrant-key");
+    expect(config.database.url).toBe("postgresql://user:pass@db:5432/rag");
+    expect(config.database.table).toBe("my_chunks");
   });
 
   it("applies chunking defaults", () => {

@@ -4,6 +4,8 @@ import { ToolRegistryService } from "../../shared/tools/tool-registry.service";
 import { VectorSearchTool } from "./vector-search.tool";
 import { VectorStore } from "./vector-store.interface";
 
+const ctx = { requestId: "r1" };
+
 function createConfig(values: Record<string, unknown> = {}): ConfigService {
   return { get: (key: string) => values[key] } as unknown as ConfigService;
 }
@@ -24,8 +26,8 @@ function createStore(
   }>,
 ): VectorStore {
   return {
-    providerId: "qdrant",
-    collectionName: "confluence-pages",
+    providerId: "pgvector",
+    collectionName: "chunks",
     search: jest.fn().mockResolvedValue(hits),
     count: jest.fn().mockResolvedValue(hits.length),
   };
@@ -43,6 +45,19 @@ describe("VectorSearchTool", () => {
     tool.onModuleInit();
     expect(registry.hasTool("vector_search")).toBe(true);
     expect(registry.getTool("vector_search")).toBe(tool);
+  });
+
+  it("exposes db.system and db.collection as staticAttributes", () => {
+    const tool = new VectorSearchTool(
+      createEmbedding([0.1]),
+      createStore([]),
+      new ToolRegistryService(),
+      createConfig({}),
+    );
+    expect(tool.staticAttributes).toMatchObject({
+      "db.system": "pgvector",
+      "db.collection.name": "chunks",
+    });
   });
 
   it("embeds the query, calls the store and formats hits into the output", async () => {
@@ -68,15 +83,14 @@ describe("VectorSearchTool", () => {
       createConfig({ "retrieval.defaultLimit": 5, "retrieval.scoreThreshold": 0.7 }),
     );
 
-    const result = await tool.execute({ query: "how do I VPN?", spaceKey: "IT" });
+    const result = await tool.execute({ query: "how do I VPN?", spaceKey: "IT" }, ctx);
 
     expect(embedding.embedQuery).toHaveBeenCalledWith("how do I VPN?");
     expect(store.search).toHaveBeenCalledWith([0.1, 0.2, 0.3], {
       limit: 5,
       scoreThreshold: 0.7,
-      filter: { must: [{ key: "spaceKey", match: { value: "IT" } }] },
+      filter: { spaceKey: "IT" },
     });
-    expect(result.success).toBe(true);
     expect(result.output).toContain("VPN Setup");
     expect(result.output).toContain("Cisco AnyConnect");
     expect(result.output).toContain("https://wiki/vpn");
@@ -91,7 +105,7 @@ describe("VectorSearchTool", () => {
     ]);
   });
 
-  it("returns success:false with error output when embedding fails", async () => {
+  it("propagates embedding errors so the executor maps them", async () => {
     const registry = new ToolRegistryService();
     const embedding: EmbeddingClient = {
       providerId: "openai",
@@ -101,9 +115,7 @@ describe("VectorSearchTool", () => {
     const store = createStore([]);
     const tool = new VectorSearchTool(embedding, store, registry, createConfig({}));
 
-    const result = await tool.execute({ query: "x" });
-    expect(result.success).toBe(false);
-    expect(result.output).toContain("embedding boom");
+    await expect(tool.execute({ query: "x" }, ctx)).rejects.toThrow("embedding boom");
   });
 
   it("uses input.limit when provided, defaultLimit otherwise", async () => {
@@ -116,13 +128,13 @@ describe("VectorSearchTool", () => {
       createConfig({ "retrieval.defaultLimit": 10 }),
     );
 
-    await tool.execute({ query: "x", limit: 3 });
+    await tool.execute({ query: "x", limit: 3 }, ctx);
     expect(store.search).toHaveBeenCalledWith(
       expect.any(Array),
       expect.objectContaining({ limit: 3 }),
     );
 
-    await tool.execute({ query: "y" });
+    await tool.execute({ query: "y" }, ctx);
     expect(store.search).toHaveBeenLastCalledWith(
       expect.any(Array),
       expect.objectContaining({ limit: 10 }),

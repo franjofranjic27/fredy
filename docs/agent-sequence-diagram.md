@@ -11,7 +11,7 @@ sequenceDiagram
     participant LLM as Claude API
     participant TR as Tool Registry
     participant Emb as Embedding API
-    participant Q as Qdrant
+    participant Q as PostgreSQL / pgvector
 
     C->>S: POST /v1/chat/completions
     Note over C,S: Authorization: Bearer token | x-session-id: uuid | stream: true
@@ -56,16 +56,16 @@ sequenceDiagram
                 TR->>TR: Input via Zod validieren + Timeout starten
                 TR->>Emb: POST /v1/embeddings { input: query }
                 Emb-->>TR: Abfrage-Vektor (1536 Dimensionen)
-                TR->>Q: POST /points/search { vector, score_threshold: 0.7 }
+                TR->>Q: SELECT ... ORDER BY embedding <=> $vector LIMIT k (score >= 0.7)
                 Q-->>TR: Top-K Dokument-Chunks (title, content, url, score)
                 TR-->>Ag: { results: [...], totalFound: N }
 
             and
 
                 Ag->>TR: execute("get_knowledge_base_stats", {})
-                TR->>Q: GET /collections/confluence-pages
-                Q-->>TR: { points_count }
-                TR->>Q: POST /points/scroll (paginiert nach spaceKey)
+                TR->>Q: SELECT count(*) FROM chunks
+                Q-->>TR: { totalChunks }
+                TR->>Q: SELECT space_key, count(*) FROM chunks GROUP BY space_key
                 Q-->>TR: spaceKey-Verteilung
                 TR-->>Ag: { totalChunks, spaces, status }
 
