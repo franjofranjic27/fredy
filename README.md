@@ -93,9 +93,9 @@ docker compose pull               # Pull latest images
 
 ## Releases
 
-Docker images are published to Docker Hub and a GitHub release is cut whenever
-you push a semver tag. Both self-built services and the mirrored upstream
-images are built in parallel.
+Docker images are published to Docker Hub (multi-arch: `linux/amd64` +
+`linux/arm64`) and a GitHub release is cut per version. All requested images
+build in parallel.
 
 **One-time setup** (Settings → Secrets and variables → Actions):
 
@@ -104,14 +104,7 @@ images are built in parallel.
 | Variable | `DOCKERHUB_USERNAME` | your Docker Hub namespace (user or org) |
 | Secret | `DOCKERHUB_TOKEN` | a Docker Hub access token with write scope |
 
-**Cut a release:**
-
-```bash
-git tag v0.0.1
-git push origin v0.0.1
-```
-
-This publishes (each tagged with the version and `latest`):
+Images (each tagged `0.0.1`, `0.0` and `latest`):
 
 | Image | Source |
 |-------|--------|
@@ -120,8 +113,24 @@ This publishes (each tagged with the version and `latest`):
 | `<user>/fredy-postgres` | mirror of `pgvector/pgvector:pg17` |
 | `<user>/fredy-openwebui` | mirror of `ghcr.io/open-webui/open-webui:main` |
 
-The GitHub release is created automatically with generated notes plus the
-`docker pull` commands for the published images.
+**Tag a release (automatic, change-detected):**
+
+```bash
+git tag v0.0.1
+git push origin v0.0.1
+```
+
+Only images whose sources changed since the previous tag are rebuilt:
+`services/<name>/**` rebuilds that service; a change to `packages/common/**`,
+`pnpm-lock.yaml` or the root `package.json` rebuilds **both** services; a change
+to `docker-compose.yml` re-mirrors postgres + openwebui. The first tag (no
+previous tag) builds everything. A GitHub release with generated notes is
+created.
+
+**Release a single image manually:** run the **Release** workflow from the
+Actions tab (`workflow_dispatch`), enter the version and tick only the images
+you want. Untick `create_release` for a plain image rebuild without a GitHub
+release.
 
 ## Repository Structure
 

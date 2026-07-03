@@ -1,9 +1,16 @@
 name: Release
 
-# Cut a release by pushing a semver tag, e.g.:
-#   git tag v0.0.1 && git push origin v0.0.1
+# Two ways to release:
 #
-# Requires two repository settings (Settings -> Secrets and variables -> Actions):
+#   1. Push a semver tag — builds only the services that changed since the
+#      previous tag and cuts a GitHub release:
+#        git tag v0.0.1 && git push origin v0.0.1
+#
+#   2. Run this workflow manually (Actions -> Release -> Run workflow) and tick
+#      exactly the images you want to (re)build. Untick "create_release" for a
+#      plain image rebuild without a GitHub release.
+#
+# Requires (Settings -> Secrets and variables -> Actions):
 #   - Variable  DOCKERHUB_USERNAME : your Docker Hub namespace (user or org)
 #   - Secret    DOCKERHUB_TOKEN    : a Docker Hub access token with write scope
 
@@ -11,25 +18,122 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, e.g. v0.0.1"
+        required: true
+        type: string
+      agent:
+        description: "Build fredy-agent"
+        type: boolean
+        default: false
+      confluence_importer:
+        description: "Build fredy-confluence-importer"
+        type: boolean
+        default: false
+      postgres:
+        description: "Mirror fredy-postgres"
+        type: boolean
+        default: false
+      openwebui:
+        description: "Mirror fredy-openwebui"
+        type: boolean
+        default: false
+      create_release:
+        description: "Also create a GitHub release"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
 jobs:
-  # Build the two services that have their own Dockerfile, in parallel.
+  # Decide the version and which images to (re)build.
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.decide.outputs.version }}
+      services: ${{ steps.decide.outputs.services }}
+      mirrors: ${{ steps.decide.outputs.mirrors }}
+      make_release: ${{ steps.decide.outputs.make_release }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # full history + tags for change detection
+
+      - id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          IN_VERSION: ${{ inputs.version }}
+          IN_AGENT: ${{ inputs.agent }}
+          IN_IMPORTER: ${{ inputs.confluence_importer }}
+          IN_POSTGRES: ${{ inputs.postgres }}
+          IN_OPENWEBUI: ${{ inputs.openwebui }}
+          IN_RELEASE: ${{ inputs.create_release }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          agent=false; importer=false; postgres=false; openwebui=false
+
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            version="$IN_VERSION"
+            make_release="$IN_RELEASE"
+            agent="$IN_AGENT"; importer="$IN_IMPORTER"
+            postgres="$IN_POSTGRES"; openwebui="$IN_OPENWEBUI"
+          else
+            version="$REF_NAME"
+            make_release=true
+            prev=$(git describe --tags --abbrev=0 "${version}^" 2>/dev/null || echo "")
+            if [ -z "$prev" ]; then
+              echo "No previous tag — building everything (first release)."
+              agent=true; importer=true; postgres=true; openwebui=true
+            else
+              echo "Diffing $prev..$version"
+              changed=$(git diff --name-only "$prev" "$version")
+              echo "$changed"
+              shared=no
+              echo "$changed" | grep -qE '^packages/common/|^pnpm-lock\.yaml$|^pnpm-workspace\.yaml$|^package\.json$' && shared=yes || true
+              echo "$changed" | grep -qE '^services/agent/' && agent=true || true
+              echo "$changed" | grep -qE '^services/confluence-importer/' && importer=true || true
+              if [ "$shared" = "yes" ]; then agent=true; importer=true; fi
+              if echo "$changed" | grep -qE '^docker-compose\.yml$'; then postgres=true; openwebui=true; fi
+            fi
+          fi
+
+          services='[]'
+          [ "$agent" = "true" ] && services=$(echo "$services" | jq -c '. + [{"service":"agent","image":"fredy-agent"}]')
+          [ "$importer" = "true" ] && services=$(echo "$services" | jq -c '. + [{"service":"confluence-importer","image":"fredy-confluence-importer"}]')
+
+          mirrors='[]'
+          [ "$postgres" = "true" ] && mirrors=$(echo "$mirrors" | jq -c '. + [{"source":"pgvector/pgvector:pg17","image":"fredy-postgres"}]')
+          [ "$openwebui" = "true" ] && mirrors=$(echo "$mirrors" | jq -c '. + [{"source":"ghcr.io/open-webui/open-webui:main","image":"fredy-openwebui"}]')
+
+          {
+            echo "version=$version"
+            echo "services=$services"
+            echo "mirrors=$mirrors"
+            echo "make_release=$make_release"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Version:  $version"
+          echo "Services: $services"
+          echo "Mirrors:  $mirrors"
+          echo "Release:  $make_release"
+
+  # Build the services that have their own Dockerfile, in parallel, multi-arch.
   build-services:
+    needs: detect
+    if: ${{ needs.detect.outputs.services != '[]' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - service: agent
-            image: fredy-agent
-          - service: confluence-importer
-            image: fredy-confluence-importer
+        include: ${{ fromJSON(needs.detect.outputs.services) }}
     steps:
       - uses: actions/checkout@v5
 
+      - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
 
       - uses: docker/login-action@v4
@@ -42,7 +146,8 @@ jobs:
         with:
           images: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image }}
           tags: |
-            type=raw,value=${{ github.ref_name }}
+            type=semver,pattern={{version}},value=${{ needs.detect.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.detect.outputs.version }}
             type=raw,value=latest
 
       - uses: docker/build-push-action@v7
@@ -50,26 +155,21 @@ jobs:
           context: .
           file: services/${{ matrix.service }}/Dockerfile
           push: true
-          # Add linux/arm64 here (plus a docker/setup-qemu-action@v4 step) for
-          # multi-arch images; amd64 covers the typical Linux server target.
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Mirror the upstream images we don't build ourselves, in parallel.
-  # imagetools copies the full multi-arch manifest registry-to-registry.
+  # Mirror upstream images we don't build ourselves; imagetools keeps multi-arch.
   mirror-images:
+    needs: detect
+    if: ${{ needs.detect.outputs.mirrors != '[]' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - source: pgvector/pgvector:pg17
-            image: fredy-postgres
-          - source: ghcr.io/open-webui/open-webui:main
-            image: fredy-openwebui
+        include: ${{ fromJSON(needs.detect.outputs.mirrors) }}
     steps:
       - uses: docker/setup-buildx-action@v4
 
@@ -78,17 +178,31 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Mirror ${{ matrix.source }} -> ${{ matrix.image }}
-        run: |
-          DEST="${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image }}"
-          docker buildx imagetools create \
-            --tag "${DEST}:${{ github.ref_name }}" \
-            --tag "${DEST}:latest" \
-            "${{ matrix.source }}"
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.detect.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.detect.outputs.version }}
+            type=raw,value=latest
 
-  # Once every image is published, cut the GitHub release with auto notes.
+      - name: Mirror ${{ matrix.source }} -> ${{ matrix.image }}
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          SOURCE: ${{ matrix.source }}
+        run: |
+          set -euo pipefail
+          args=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && args+=(--tag "$tag")
+          done <<< "$TAGS"
+          docker buildx imagetools create "${args[@]}" "$SOURCE"
+
+  # Cut the GitHub release once all requested images are published.
   release:
-    needs: [build-services, mirror-images]
+    needs: [detect, build-services, mirror-images]
+    if: ${{ needs.detect.outputs.make_release == 'true' && !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -101,22 +215,29 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NS: ${{ vars.DOCKERHUB_USERNAME }}
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ needs.detect.outputs.version }}
+          SERVICES: ${{ needs.detect.outputs.services }}
+          MIRRORS: ${{ needs.detect.outputs.mirrors }}
         run: |
-          NOTES=$(gh api "repos/${{ github.repository }}/releases/generate-notes" \
-            -f tag_name="$VERSION" --jq '.body')
+          set -euo pipefail
+          docker_ver="${VERSION#v}"
+
+          notes=$(gh api "repos/${{ github.repository }}/releases/generate-notes" \
+            -f tag_name="$VERSION" -f target_commitish="$GITHUB_SHA" \
+            --jq '.body' 2>/dev/null || echo "_No autogenerated notes._")
+
           {
             echo "## 🐳 Docker images"
             echo
             echo '```bash'
-            echo "docker pull ${NS}/fredy-agent:${VERSION}"
-            echo "docker pull ${NS}/fredy-confluence-importer:${VERSION}"
-            echo "docker pull ${NS}/fredy-postgres:${VERSION}"
-            echo "docker pull ${NS}/fredy-openwebui:${VERSION}"
+            echo "$SERVICES" | jq -r --arg ns "$NS" --arg v "$docker_ver" '.[] | "docker pull \($ns)/\(.image):\($v)"'
+            echo "$MIRRORS"  | jq -r --arg ns "$NS" --arg v "$docker_ver" '.[] | "docker pull \($ns)/\(.image):\($v)"'
             echo '```'
             echo
-            echo "$NOTES"
+            echo "$notes"
           } > release-notes.md
+
           gh release create "$VERSION" \
             --title "$VERSION" \
+            --target "$GITHUB_SHA" \
             --notes-file release-notes.md
