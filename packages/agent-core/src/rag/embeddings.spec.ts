@@ -103,4 +103,18 @@ describe("voyage embedding client", () => {
     const client = createEmbeddingClient("voyage", { apiKey: "k", model: "m" }, fetchImpl);
     await expect(client.embedQuery("x")).rejects.toThrow("Voyage embedding failed: 500");
   });
+
+  it("embeds documents with input_type document", async () => {
+    const fetchImpl = fetchReturning({ data: [{ embedding: [0.4] }] });
+    const client = createEmbeddingClient(
+      "voyage",
+      { apiKey: "vkey", model: "voyage-3-lite" },
+      fetchImpl,
+    );
+    const vector = await client.embedDocument("stored text");
+
+    expect(vector).toEqual([0.4]);
+    const body = JSON.parse((vi.mocked(fetchImpl).mock.calls[0][1] as RequestInit).body as string);
+    expect(body).toEqual({ model: "voyage-3-lite", input: "stored text", input_type: "document" });
+  });
 });

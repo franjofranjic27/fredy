@@ -1,7 +1,13 @@
 import { z } from "zod";
-import { defineConfig, parseRoleToolConfig, type RoleToolConfig } from "@fredy/agent-core";
+import {
+  defineConfig,
+  parseRoleToolConfig,
+  type EmbeddingProvider,
+  type EmbeddingProviderConfig,
+  type RoleToolConfig,
+} from "@fredy/agent-core";
 
-export type EmbeddingProvider = "openai" | "voyage";
+export type { EmbeddingProvider, EmbeddingProviderConfig } from "@fredy/agent-core";
 export type RerankerProvider = "none" | "cohere" | "voyage";
 
 const DEFAULT_RERANK_MODELS: Record<Exclude<RerankerProvider, "none">, string> = {
@@ -98,12 +104,6 @@ function parseTrustProxy(raw: string | undefined): boolean | string {
   if (!raw || raw === "false") return false;
   if (raw === "true") return true;
   return raw;
-}
-
-export interface EmbeddingProviderConfig {
-  readonly apiKey?: string;
-  readonly model: string;
-  readonly endpoint?: string;
 }
 
 export interface AppConfig {

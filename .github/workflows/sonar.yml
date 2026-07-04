@@ -39,6 +39,10 @@ jobs:
       - name: Run agent tests with coverage
         run: cd services/agent && pnpm test
 
+      # Produces services/jira-agent/coverage/lcov.info for the Sonar scan
+      - name: Run jira-agent tests with coverage
+        run: cd services/jira-agent && pnpm test
+
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"

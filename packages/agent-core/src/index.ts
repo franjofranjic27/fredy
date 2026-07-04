@@ -51,3 +51,28 @@ export {
 } from "./agents/agent.js";
 export { AgentRegistry, type RegisteredAgent } from "./agents/agent-registry.js";
 export { defineConfig } from "./config/define-config.js";
+export {
+  PgVectorStore,
+  sanitizeIdentifier,
+  type QueryablePool,
+  type VectorSearchHit,
+  type VectorSearchOptions,
+} from "./rag/pgvector.js";
+export {
+  createEmbeddingClient,
+  DEFAULT_EMBEDDING_TIMEOUT_MS,
+  type EmbeddingClient,
+  type EmbeddingProvider,
+  type EmbeddingProviderConfig,
+  type FetchLike,
+} from "./rag/embeddings.js";
+export {
+  createVectorSearchTool,
+  formatHit,
+  formatHits,
+  vectorSearchInputSchema,
+  VECTOR_SEARCH_TOOL_NAME,
+  type VectorSearchArtifact,
+  type VectorSearchInput,
+  type VectorSearchToolDeps,
+} from "./rag/vector-search.js";

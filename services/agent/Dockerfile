@@ -8,6 +8,9 @@ RUN corepack enable && corepack prepare pnpm@10.28.2 --activate
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY packages/agent-core/package.json ./packages/agent-core/
 COPY services/agent/package.json ./services/agent/
+# All workspace manifests must be present or --frozen-lockfile rejects the
+# lockfile (its importer set covers every package in the workspace).
+COPY services/jira-agent/package.json ./services/jira-agent/
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
 # Stage 2: build agent-core + agent

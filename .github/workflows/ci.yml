@@ -45,6 +45,15 @@ jobs:
       - name: Test agent
         run: cd services/agent && pnpm test
 
+      - name: Typecheck jira-agent
+        run: cd services/jira-agent && pnpm exec tsc --noEmit
+
+      - name: Lint jira-agent
+        run: cd services/jira-agent && pnpm lint
+
+      - name: Test jira-agent
+        run: cd services/jira-agent && pnpm test
+
   python:
     if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest

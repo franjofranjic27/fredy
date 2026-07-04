@@ -28,6 +28,10 @@ on:
         description: "Build fredy-agent"
         type: boolean
         default: false
+      jira_agent:
+        description: "Build fredy-jira-agent"
+        type: boolean
+        default: false
       confluence_importer:
         description: "Build fredy-confluence-importer"
         type: boolean
@@ -67,6 +71,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           IN_VERSION: ${{ inputs.version }}
           IN_AGENT: ${{ inputs.agent }}
+          IN_JIRA_AGENT: ${{ inputs.jira_agent }}
           IN_IMPORTER: ${{ inputs.confluence_importer }}
           IN_POSTGRES: ${{ inputs.postgres }}
           IN_OPENWEBUI: ${{ inputs.openwebui }}
@@ -74,12 +79,12 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          agent=false; importer=false; postgres=false; openwebui=false
+          agent=false; jira_agent=false; importer=false; postgres=false; openwebui=false
 
           if [ "$EVENT" = "workflow_dispatch" ]; then
             version="$IN_VERSION"
             make_release="$IN_RELEASE"
-            agent="$IN_AGENT"; importer="$IN_IMPORTER"
+            agent="$IN_AGENT"; jira_agent="$IN_JIRA_AGENT"; importer="$IN_IMPORTER"
             postgres="$IN_POSTGRES"; openwebui="$IN_OPENWEBUI"
           else
             version="$REF_NAME"
@@ -87,7 +92,7 @@ jobs:
             prev=$(git describe --tags --abbrev=0 "${version}^" 2>/dev/null || echo "")
             if [ -z "$prev" ]; then
               echo "No previous tag — building everything (first release)."
-              agent=true; importer=true; postgres=true; openwebui=true
+              agent=true; jira_agent=true; importer=true; postgres=true; openwebui=true
             else
               echo "Diffing $prev..$version"
               changed=$(git diff --name-only "$prev" "$version")
@@ -95,17 +100,19 @@ jobs:
               shared=no
               echo "$changed" | grep -qE '^packages/agent-core/|^pnpm-lock\.yaml$|^pnpm-workspace\.yaml$|^package\.json$' && shared=yes || true
               echo "$changed" | grep -qE '^services/agent/' && agent=true || true
+              echo "$changed" | grep -qE '^services/jira-agent/' && jira_agent=true || true
               echo "$changed" | grep -qE '^services/confluence-importer/' && importer=true || true
-              # Shared pnpm workspace changes only affect the TS agent; the
+              # Shared pnpm workspace changes only affect the TS services; the
               # importer is a self-contained Python/uv project (uv.lock lives
               # inside services/confluence-importer/ and is caught above).
-              if [ "$shared" = "yes" ]; then agent=true; fi
+              if [ "$shared" = "yes" ]; then agent=true; jira_agent=true; fi
               if echo "$changed" | grep -qE '^docker-compose\.yml$'; then postgres=true; openwebui=true; fi
             fi
           fi
 
           services='[]'
           [ "$agent" = "true" ] && services=$(echo "$services" | jq -c '. + [{"service":"agent","image":"fredy-agent"}]')
+          [ "$jira_agent" = "true" ] && services=$(echo "$services" | jq -c '. + [{"service":"jira-agent","image":"fredy-jira-agent"}]')
           [ "$importer" = "true" ] && services=$(echo "$services" | jq -c '. + [{"service":"confluence-importer","image":"fredy-confluence-importer"}]')
 
           mirrors='[]'

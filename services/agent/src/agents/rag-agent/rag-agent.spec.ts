@@ -9,11 +9,15 @@ import {
 } from "@opentelemetry/api";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
-import { ToolRegistry, type AgentRun, type AgentStreamEvent } from "@fredy/agent-core";
+import {
+  ToolRegistry,
+  type AgentRun,
+  type AgentStreamEvent,
+  type VectorSearchHit,
+} from "@fredy/agent-core";
 import { loadConfig } from "../../config.js";
 import { FakeChatModel } from "../../testing/fake-chat-model.js";
 import { createTestLogger } from "../../testing/test-logger.js";
-import type { VectorSearchHit } from "../../tools/pgvector.js";
 import { createRagAgent, mapRagStreamEvents, type RagStreamEvent } from "./rag-agent.js";
 import { RAG_FALLBACK_RESPONSE, RAG_FALLBACK_RESPONSE_DE } from "./system-prompt.js";
 

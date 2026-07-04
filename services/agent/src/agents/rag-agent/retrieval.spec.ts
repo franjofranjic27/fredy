@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
-import { ToolRegistry } from "@fredy/agent-core";
+import { ToolRegistry, type VectorSearchHit } from "@fredy/agent-core";
 import { retrieveContext, type RetrievalDeps } from "./retrieval.js";
 import type { Reranker } from "../../rerank/reranker.js";
-import type { VectorSearchHit } from "../../tools/pgvector.js";
 import { createTestLogger, type CapturingLogger } from "../../testing/test-logger.js";
 
 function hit(id: string, content: string, score = 0.9): VectorSearchHit {

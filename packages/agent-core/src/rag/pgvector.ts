@@ -1,4 +1,4 @@
-import type { Logger } from "@fredy/agent-core";
+import type { Logger } from "../logging/logger.js";
 
 export interface VectorSearchHit {
   readonly id: string;
