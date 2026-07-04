@@ -7,6 +7,11 @@ import pg from "pg";
 import { createLogger } from "@fredy/agent-core";
 import { loadConfig } from "./config.js";
 import { buildServer } from "./server.js";
+import { createJiraClient } from "./jira/jira-client.js";
+import { TicketQueue } from "./queue.js";
+import { JiraPoller } from "./poller.js";
+import { createTicketProcessor } from "./processor.js";
+import { createNoopTicketAgent } from "./agent/noop-agent.js";
 
 async function bootstrap(): Promise<void> {
   const config = loadConfig();
@@ -20,14 +25,40 @@ async function bootstrap(): Promise<void> {
   });
 
   try {
+    const jiraClient = createJiraClient({
+      baseUrl: config.jira.baseUrl,
+      email: config.jira.email,
+      apiToken: config.jira.apiToken,
+    });
+    const queue = new TicketQueue(logger);
+    const agent = createNoopTicketAgent(logger);
+    queue.start(
+      createTicketProcessor({
+        client: jiraClient,
+        agent,
+        agentAccountId: config.jira.agentAccountId,
+        logger,
+      }),
+    );
+    const poller = new JiraPoller({
+      client: jiraClient,
+      queue,
+      logger,
+      jql: config.jira.pollJql,
+      intervalMs: config.jira.pollIntervalMs,
+      projectKey: config.jira.projectKey,
+    });
+
     const app = buildServer({
       config,
       logger,
-      getPollerStatus: () => ({ lastRunAt: null, lastError: null, queueDepth: 0 }),
+      getPollerStatus: () => ({ ...poller.status, queueDepth: queue.depth }),
     });
 
     const shutdown = async (signal: string): Promise<void> => {
       logger.info(`Received ${signal} — shutting down`);
+      poller.stop();
+      await queue.stop();
       await app.close();
       await pool.end();
       await tracing.shutdown();
@@ -41,6 +72,7 @@ async function bootstrap(): Promise<void> {
       `Fredy Jira Agent listening on http://0.0.0.0:${config.port} ` +
         `(project=${config.jira.projectKey}, pollIntervalMs=${config.jira.pollIntervalMs})`,
     );
+    await poller.start();
   } catch (error) {
     // Release DB connections before the process exits on a failed boot.
     await pool.end().catch(() => undefined);
