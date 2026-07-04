@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import { describe, expect, it } from "vitest";
 import pino from "pino";
 import { buildLoggerOptions, createLogger } from "./logger.js";
@@ -37,12 +38,12 @@ describe("buildLoggerOptions", () => {
       { serviceName: "svc" },
       { SERVICE_NAME: "renamed", PROJECT_ENV: "staging" },
     );
-    expect(options.base).toEqual({ service: "renamed", env: "staging" });
+    expect(options.base).toEqual({ service: "renamed", env: "staging", host: hostname() });
   });
 
   it("defaults service to the given name and env to development", () => {
     const options = buildLoggerOptions({ serviceName: "svc" }, {});
-    expect(options.base).toEqual({ service: "svc", env: "development" });
+    expect(options.base).toEqual({ service: "svc", env: "development", host: hostname() });
   });
 
   it("uses JSON output (no transport) in production", () => {

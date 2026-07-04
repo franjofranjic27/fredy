@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import pino from "pino";
 
 export type Logger = pino.Logger;
@@ -32,6 +33,7 @@ export function buildLoggerOptions(
     base: {
       service: env.SERVICE_NAME ?? options.serviceName,
       env: env.PROJECT_ENV ?? "development",
+      host: hostname(),
     },
     transport: isProduction
       ? undefined

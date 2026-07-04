@@ -1,4 +1,3 @@
-import { hostname } from "node:os";
 import type { Logger } from "@fredy/agent-core";
 
 export type AgentName = "rag-agent";
@@ -41,18 +40,11 @@ export interface LlmCallLogEvent extends BaseLogEvent {
 
 export type AgentLogEvent = RequestLogEvent | RetrievalLogEvent | LlmCallLogEvent;
 
-const host = hostname();
-
 /**
- * Emits a structured audit event through pino, enriched with the same
- * timestamp/service/env/host fields the previous ObservabilityService added.
+ * Emits a structured audit event through pino. Timestamp, service, env and
+ * host come from the shared logger (agent-core base fields) — this wrapper
+ * only adds the typed event shape.
  */
 export function emitLogEvent(logger: Logger, event: AgentLogEvent): void {
-  logger.info({
-    timestamp: new Date().toISOString(),
-    service: process.env.SERVICE_NAME ?? "fredy-agent",
-    env: process.env.PROJECT_ENV ?? "development",
-    host,
-    ...event,
-  });
+  logger.info(event);
 }
