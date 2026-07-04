@@ -4,6 +4,12 @@ export interface TicketEvent {
   readonly trigger: "assigned" | "reprocess";
 }
 
+/**
+ * Abstract status changes; the executor resolves them to concrete transition
+ * ids via the configured name allow-list — the LLM never sees raw ids.
+ */
+export type TransitionIntent = "resolve" | "waiting-for-reporter";
+
 export type TicketOutcomePath =
   | "cached"
   | "handler"

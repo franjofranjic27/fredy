@@ -30,6 +30,12 @@ export interface JiraTransition {
   readonly name: string;
 }
 
+/** Everything the agent core needs about a ticket, fetched in one pass. */
+export interface TicketSnapshot {
+  readonly issue: JiraIssue;
+  readonly comments: readonly JiraComment[];
+}
+
 /** Minimal ADF shapes — only what reading and writing comments needs. */
 export interface AdfNode {
   readonly type?: string;
