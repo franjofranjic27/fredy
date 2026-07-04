@@ -1,7 +1,5 @@
-import type { Logger } from "@fredy/agent-core";
+import { sanitizeIdentifier, type Logger, type QueryablePool } from "@fredy/agent-core";
 import type { AppConfig, EmbeddingProvider, EmbeddingProviderConfig } from "./config.js";
-import type { QueryablePool } from "./tools/pgvector.js";
-import { sanitizeIdentifier } from "./tools/pgvector.js";
 
 export interface ResolvedRagProfile {
   readonly tableName: string;

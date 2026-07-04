@@ -4,15 +4,19 @@ import { initTracing } from "@fredy/agent-core";
 const tracing = initTracing("fredy-agent");
 
 import pg from "pg";
-import { AgentRegistry, createLogger, ToolRegistry } from "@fredy/agent-core";
+import {
+  AgentRegistry,
+  createEmbeddingClient,
+  createLogger,
+  createVectorSearchTool,
+  PgVectorStore,
+  ToolRegistry,
+} from "@fredy/agent-core";
 import { loadConfig } from "./config.js";
 import { resolveRagProfile } from "./profile.js";
 import { createReranker } from "./rerank/factory.js";
 import { createRagAgent } from "./agents/rag-agent/rag-agent.js";
 import { buildServer } from "./server.js";
-import { createEmbeddingClient } from "./tools/embeddings.js";
-import { PgVectorStore } from "./tools/pgvector.js";
-import { createVectorSearchTool } from "./tools/vector-search.js";
 
 async function bootstrap(): Promise<void> {
   const config = loadConfig();

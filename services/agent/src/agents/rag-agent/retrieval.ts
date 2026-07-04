@@ -1,10 +1,15 @@
 import { trace, SpanStatusCode } from "@opentelemetry/api";
 import type { ToolMessage } from "@langchain/core/messages";
-import { GEN_AI, type Logger, type ToolRegistry } from "@fredy/agent-core";
+import {
+  formatHit,
+  GEN_AI,
+  VECTOR_SEARCH_TOOL_NAME,
+  type Logger,
+  type ToolRegistry,
+  type VectorSearchHit,
+} from "@fredy/agent-core";
 import { emitLogEvent } from "../../observability/log-events.js";
 import type { Reranker } from "../../rerank/reranker.js";
-import type { VectorSearchHit } from "../../tools/pgvector.js";
-import { formatHit, VECTOR_SEARCH_TOOL_NAME } from "../../tools/vector-search.js";
 import { splitQueries } from "./query-split.js";
 
 const BLOCK_SEPARATOR = "\n\n---\n\n";

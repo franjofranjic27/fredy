@@ -2,10 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { tool } from "@langchain/core/tools";
 import { SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
-import { ToolRegistry } from "@fredy/agent-core";
+import { ToolRegistry, type VectorSearchHit } from "@fredy/agent-core";
 import { buildRagGraph, type RagGraphDeps, type RagState } from "./graph.js";
 import { RAG_FALLBACK_RESPONSE, RAG_SYSTEM_PROMPT } from "./system-prompt.js";
-import type { VectorSearchHit } from "../../tools/pgvector.js";
 import { FakeChatModel } from "../../testing/fake-chat-model.js";
 import { createTestLogger } from "../../testing/test-logger.js";
 

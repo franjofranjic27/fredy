@@ -1,13 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
-import { AgentRegistry, ToolRegistry } from "@fredy/agent-core";
+import { AgentRegistry, ToolRegistry, type VectorSearchHit } from "@fredy/agent-core";
 import type { FastifyInstance } from "fastify";
 import { loadConfig } from "../config.js";
 import { createRagAgent } from "../agents/rag-agent/rag-agent.js";
 import { RAG_FALLBACK_RESPONSE } from "../agents/rag-agent/system-prompt.js";
 import { buildServer } from "../server.js";
-import type { VectorSearchHit } from "../tools/pgvector.js";
 import { FakeChatModel } from "../testing/fake-chat-model.js";
 import { createTestLogger } from "../testing/test-logger.js";
 
