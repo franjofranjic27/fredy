@@ -5,6 +5,7 @@ import {
   ChatCompletionRequestSchema,
   createCompletionChunk,
   createCompletionResponse,
+  createUsageChunk,
   type ChatCompletionRequest,
 } from "../openai/types.js";
 import type { RbacRequest } from "../plugins/rbac.js";
@@ -19,6 +20,7 @@ interface ResolvedChatRequest {
   readonly sessionId: string;
   readonly model: string;
   readonly stream: boolean;
+  readonly includeUsage: boolean;
   readonly input: AgentRunInput;
 }
 
@@ -29,7 +31,14 @@ export function registerChatCompletionsRoute(
   const { agents, logger } = options;
 
   app.post("/v1/chat/completions", { preHandler: options.preHandlers }, async (request, reply) => {
-    const resolved = resolve(request as RbacRequest, reply);
+    // Abort in-flight LLM/tool calls when the client goes away — every orphaned
+    // completion otherwise runs to the end and costs real tokens.
+    const abortController = new AbortController();
+    request.raw.on("close", () => {
+      if (request.raw.destroyed) abortController.abort();
+    });
+
+    const resolved = resolve(request as RbacRequest, reply, abortController.signal);
     if (!resolved) return;
 
     const agent = agents.get(resolved.model);
@@ -54,6 +63,10 @@ export function registerChatCompletionsRoute(
         .code(200)
         .send(createCompletionResponse(result.content, resolved.model, result.usage));
     } catch (error) {
+      if (abortController.signal.aborted) {
+        logger.debug(`Request aborted by client session=${resolved.sessionId}`);
+        return;
+      }
       logger.error(
         { err: error },
         `Request failed session=${resolved.sessionId}: ${
@@ -69,7 +82,11 @@ export function registerChatCompletionsRoute(
     }
   });
 
-  function resolve(request: RbacRequest, reply: FastifyReply): ResolvedChatRequest | null {
+  function resolve(
+    request: RbacRequest,
+    reply: FastifyReply,
+    signal: AbortSignal,
+  ): ResolvedChatRequest | null {
     const parsed = ChatCompletionRequestSchema.safeParse(request.body);
     if (!parsed.success) {
       void reply.code(400).send({
@@ -97,6 +114,7 @@ export function registerChatCompletionsRoute(
       sessionId,
       model: body.model ?? defaultAgentId!,
       stream: Boolean(body.stream),
+      includeUsage: Boolean(body.stream_options?.include_usage),
       input: {
         sessionId,
         messages: body.messages,
@@ -104,6 +122,7 @@ export function registerChatCompletionsRoute(
         allowedToolNames: request.allowedToolNames,
         temperature: body.temperature,
         maxTokens: body.max_tokens,
+        signal,
       },
     };
   }
@@ -134,12 +153,18 @@ async function streamChatCompletion(
   write(createCompletionChunk(streamId, { role: "assistant", content: "" }, null, resolved.model));
 
   try {
-    for await (const delta of agent.run.stream(resolved.input)) {
+    for await (const event of agent.run.stream(resolved.input)) {
       if (reply.raw.destroyed) break;
-      if (!delta) continue;
-      write(createCompletionChunk(streamId, { content: delta }, null, resolved.model));
+      if (event.type === "delta") {
+        if (!event.text) continue;
+        write(createCompletionChunk(streamId, { content: event.text }, null, resolved.model));
+      } else if (event.type === "done") {
+        write(createCompletionChunk(streamId, {}, "stop", resolved.model));
+        if (resolved.includeUsage && event.usage) {
+          write(createUsageChunk(streamId, event.model ?? resolved.model, event.usage));
+        }
+      }
     }
-    write(createCompletionChunk(streamId, {}, "stop", resolved.model));
     if (!reply.raw.writableEnded && !reply.raw.destroyed) {
       reply.raw.write("data: [DONE]\n\n");
     }

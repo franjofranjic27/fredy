@@ -21,7 +21,14 @@ describe("loadConfig", () => {
     expect(config.database.url).toBe("postgresql://fredy:fredy@localhost:5432/fredy");
     expect(config.database.table).toBe("chunks");
     expect(config.ragProfile).toBeUndefined();
-    expect(config.retrieval).toEqual({ defaultLimit: 5, scoreThreshold: 0.7, tokenBudget: 3200 });
+    expect(config.retrieval).toEqual({
+      defaultLimit: 5,
+      scoreThreshold: 0.7,
+      tokenBudget: 3200,
+      historyTokenBudget: 4000,
+      queryRewrite: false,
+    });
+    expect(config.embedding.timeoutMs).toBe(15_000);
     expect(config.rerank).toMatchObject({ provider: "none", topN: 10, threshold: 0 });
     expect(config.auth.keycloak.audience).toBe("fredy-agent");
     expect(config.auth.roleToolConfig.size).toBe(0);

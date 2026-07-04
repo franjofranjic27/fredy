@@ -62,6 +62,9 @@ const envSchema = z.object({
   RAG_DEFAULT_RETRIEVAL_LIMIT: numberWithDefault(5),
   RAG_SCORE_THRESHOLD: numberWithDefault(0.7),
   RAG_TOKEN_BUDGET: numberWithDefault(3200),
+  RAG_HISTORY_TOKEN_BUDGET: numberWithDefault(4000),
+  RAG_QUERY_REWRITE: booleanFlag,
+  EMBEDDING_TIMEOUT_MS: numberWithDefault(15_000),
   RERANKER: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z.enum(["none", "cohere", "voyage"]).default("none"),
@@ -120,6 +123,7 @@ export interface AppConfig {
     readonly provider: EmbeddingProvider;
     readonly openai: EmbeddingProviderConfig;
     readonly voyage: EmbeddingProviderConfig;
+    readonly timeoutMs: number;
   };
   readonly database: { readonly url: string; readonly table: string };
   readonly ragProfile?: string;
@@ -127,6 +131,8 @@ export interface AppConfig {
     readonly defaultLimit: number;
     readonly scoreThreshold: number;
     readonly tokenBudget: number;
+    readonly historyTokenBudget: number;
+    readonly queryRewrite: boolean;
   };
   readonly rerank: {
     readonly provider: RerankerProvider;
@@ -201,6 +207,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         model: parsed.EMBEDDING_VOYAGE_MODEL ?? parsed.EMBEDDING_MODEL ?? "voyage-3-lite",
         endpoint: parsed.EMBEDDING_VOYAGE_ENDPOINT,
       },
+      timeoutMs: parsed.EMBEDDING_TIMEOUT_MS,
     },
     database: { url: parsed.DATABASE_URL, table: parsed.CHUNKS_TABLE },
     ragProfile: parsed.RAG_PROFILE,
@@ -208,6 +215,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       defaultLimit: parsed.RAG_DEFAULT_RETRIEVAL_LIMIT,
       scoreThreshold: parsed.RAG_SCORE_THRESHOLD,
       tokenBudget: parsed.RAG_TOKEN_BUDGET,
+      historyTokenBudget: parsed.RAG_HISTORY_TOKEN_BUDGET,
+      queryRewrite: parsed.RAG_QUERY_REWRITE,
     },
     rerank: {
       provider: rerankProvider,

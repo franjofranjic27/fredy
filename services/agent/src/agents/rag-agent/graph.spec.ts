@@ -36,6 +36,7 @@ function initialState(overrides: Partial<RagState> = {}): RagState {
     temperature: undefined,
     maxTokens: undefined,
     startedAt: Date.now(),
+    retrievalQuery: undefined,
     context: null,
     answer: "",
     usage: undefined,
@@ -62,6 +63,8 @@ function makeDeps(
       },
       createModel,
       tokenBudget: 3200,
+      historyTokenBudget: 4000,
+      queryRewrite: false,
       fallbackModel: "claude-sonnet-4-5-20250929",
       logger: createTestLogger().logger,
       ...overrides,
@@ -166,5 +169,77 @@ describe("rag graph", () => {
     const graph = buildRagGraph(deps);
     await graph.invoke(initialState({ temperature: 0.4, maxTokens: 256 }));
     expect(createModel).toHaveBeenCalledWith({ temperature: 0.4, maxTokens: 256 });
+  });
+
+  it("responds with a German refusal to a German question", async () => {
+    const model = new FakeChatModel({ response: "unused" });
+    const { deps } = makeDeps(new ToolRegistry(), model);
+    const graph = buildRagGraph(deps);
+    const result = await graph.invoke(
+      initialState({
+        messages: [{ role: "user", content: "Wie richte ich das VPN ein?" }],
+        userMessage: "Wie richte ich das VPN ein?",
+      }),
+    );
+    expect(result.answer).toMatch(/^Es tut mir leid/);
+  });
+
+  it("retrieves with the rewritten query when queryRewrite is enabled and history exists", async () => {
+    const seenQueries: string[] = [];
+    const registry = new ToolRegistry();
+    registry.register(
+      tool(
+        async (input: { query: string }): Promise<[string, { hits: VectorSearchHit[] }]> => {
+          seenQueries.push(input.query);
+          return ["docs", { hits: [hit] }];
+        },
+        {
+          name: "vector_search",
+          description: "stub",
+          schema: z.object({
+            query: z.string(),
+            limit: z.number().optional(),
+            spaceKey: z.string().optional(),
+          }),
+          responseFormat: "content_and_artifact",
+        },
+      ),
+    );
+    // The same fake model serves the rewrite and the generate call.
+    const model = new FakeChatModel({ response: "VPN setup on cluster B" });
+    const { deps } = makeDeps(registry, model, { queryRewrite: true });
+    const graph = buildRagGraph(deps);
+    await graph.invoke(
+      initialState({
+        messages: [
+          { role: "user", content: "How do I set up VPN access" },
+          { role: "assistant", content: "Like this ..." },
+          { role: "user", content: "and on cluster B?" },
+        ],
+        userMessage: "and on cluster B?",
+      }),
+    );
+    expect(seenQueries).toContain("VPN setup on cluster B");
+    expect(seenQueries).not.toContain("and on cluster B?");
+  });
+
+  it("keeps only the most recent history within the history token budget", async () => {
+    const registry = registryWithVectorSearch("docs", [hit]);
+    const model = new FakeChatModel({ response: "ok" });
+    const { deps } = makeDeps(registry, model, { historyTokenBudget: 20 }); // ~80 chars
+    const graph = buildRagGraph(deps);
+    await graph.invoke(
+      initialState({
+        messages: [
+          { role: "user", content: "a".repeat(200) },
+          { role: "assistant", content: "b".repeat(200) },
+          { role: "user", content: "How do I set up VPN access" },
+        ],
+      }),
+    );
+    const contents = model.receivedMessages[0].map((message) => String(message.content));
+    // System prompt + only the latest user message survive the budget.
+    expect(contents).toHaveLength(2);
+    expect(contents[1]).toBe("How do I set up VPN access");
   });
 });

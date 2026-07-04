@@ -28,7 +28,12 @@ async function bootstrap(): Promise<void> {
   try {
     const profile = await resolveRagProfile(pool, config, logger);
     const store = new PgVectorStore(pool, profile.tableName, logger);
-    const embeddings = createEmbeddingClient(profile.embeddingProvider, profile.embedding);
+    const embeddings = createEmbeddingClient(
+      profile.embeddingProvider,
+      profile.embedding,
+      fetch,
+      config.embedding.timeoutMs,
+    );
 
     const toolRegistry = new ToolRegistry();
     toolRegistry.register(

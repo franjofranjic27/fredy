@@ -235,6 +235,48 @@ describe("Chat Completions E2E", () => {
     expect(terminal.choices[0].finish_reason).toBe("stop");
   });
 
+  it("appends a usage chunk after the stop chunk when stream_options.include_usage is set", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      payload: {
+        model: "rag-agent",
+        stream: true,
+        stream_options: { include_usage: true },
+        messages: [{ role: "user", content: "How do I VPN?" }],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const events = response.body
+      .split("\n\n")
+      .filter((line) => line.startsWith("data: ") && !line.includes("[DONE]"))
+      .map((line) => JSON.parse(line.slice("data: ".length)));
+
+    const usageChunk = events[events.length - 1];
+    expect(usageChunk.choices).toEqual([]);
+    expect(usageChunk.usage).toEqual({
+      prompt_tokens: 120,
+      completion_tokens: 22,
+      total_tokens: 142,
+    });
+    // The stop chunk still precedes the usage chunk.
+    expect(events[events.length - 2].choices[0].finish_reason).toBe("stop");
+  });
+
+  it("rejects an out-of-range temperature at the API boundary", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      payload: {
+        model: "rag-agent",
+        temperature: 3,
+        messages: [{ role: "user", content: "How do I VPN?" }],
+      },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
   it("returns the verbatim refusal when RBAC denies vector_search", async () => {
     const restricted = buildApp({
       ROLE_TOOL_CONFIG: '{"admin":["vector_search"],"user":["vector_search"]}',
