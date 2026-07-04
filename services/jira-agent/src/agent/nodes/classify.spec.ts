@@ -25,12 +25,12 @@ describe("classification overrides", () => {
     expect(result.path).toBe("need_context");
   });
 
-  it("coerces use_cache without hits to answer after the retrieval round", () => {
+  it("coerces use_cache without hits and without evidence to ask_reporter after the retrieval round", () => {
     const result = applyOverrides(
       parsed({ path: "use_cache" }),
       state({ cacheHits: [], retrievalRounds: 1 }),
     );
-    expect(result.path).toBe("answer");
+    expect(result.path).toBe("ask_reporter");
   });
 
   it("allows use_cache when a hit exists", () => {
@@ -39,8 +39,27 @@ describe("classification overrides", () => {
     expect(result.path).toBe("use_cache");
   });
 
-  it("forces need_context to answer once the retrieval budget is spent", () => {
-    const result = applyOverrides(parsed({ path: "need_context" }), state({ retrievalRounds: 1 }));
+  it("forces need_context to answer once the retrieval budget is spent and context exists", () => {
+    const result = applyOverrides(
+      parsed({ path: "need_context" }),
+      state({ retrievalRounds: 1, context: "retrieved evidence" }),
+    );
+    expect(result.path).toBe("answer");
+  });
+
+  it("routes need_context without any evidence to ask_reporter instead of a know-nothing answer", () => {
+    const result = applyOverrides(
+      parsed({ path: "need_context" }),
+      state({ retrievalRounds: 1, context: null, cacheHits: [] }),
+    );
+    expect(result.path).toBe("ask_reporter");
+  });
+
+  it("falls back to answer without evidence once the clarification budget is spent", () => {
+    const result = applyOverrides(
+      parsed({ path: "need_context" }),
+      state({ retrievalRounds: 1, context: null, cacheHits: [], clarificationRounds: 2 }),
+    );
     expect(result.path).toBe("answer");
   });
 

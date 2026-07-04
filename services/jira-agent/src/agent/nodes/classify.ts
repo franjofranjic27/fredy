@@ -4,6 +4,7 @@ import { emitLogEvent, truncateForLog } from "../../observability/log-events.js"
 import {
   classificationSchema,
   CONFIDENCE_FLOOR,
+  MAX_CLARIFICATION_ROUNDS,
   MAX_RETRIEVAL_ROUNDS,
   type Classification,
 } from "../classification.js";
@@ -19,10 +20,17 @@ import { isSafeLanguageTag } from "../../language.js";
 export function applyOverrides(parsed: Classification, state: TicketState): Classification {
   let path = parsed.path;
   if (path === "use_cache" && state.cacheHits.length === 0) {
-    path = state.retrievalRounds < MAX_RETRIEVAL_ROUNDS ? "need_context" : "answer";
+    path = "need_context";
   }
   if (path === "need_context" && state.retrievalRounds >= MAX_RETRIEVAL_ROUNDS) {
-    path = "answer";
+    // Retrieval budget spent. With evidence in hand the model can answer;
+    // without any it must not post a know-nothing resolution — give the
+    // reporter a chance to add context while clarification budget remains.
+    const hasEvidence = state.context !== null || state.cacheHits.length > 0;
+    path =
+      hasEvidence || state.clarificationRounds >= MAX_CLARIFICATION_ROUNDS
+        ? "answer"
+        : "ask_reporter";
   }
   if (parsed.confidence < CONFIDENCE_FLOOR) {
     path = "escalate";

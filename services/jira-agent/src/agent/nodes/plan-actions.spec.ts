@@ -13,6 +13,7 @@ function answeredState(overrides: Partial<TicketState> = {}): TicketState {
     cacheQuestion: "vpn setup question",
     cacheQueryEmbedding: [0.1, 0.2],
     draftComment: "answer text",
+    context: "retrieved evidence",
     ...overrides,
   };
 }
@@ -23,6 +24,19 @@ describe("plan_actions cache write", () => {
     // cache_lookup, which filters on the configured project key.
     const result = makePlanActionsNode(deps)(answeredState());
     expect(result.cacheWrite?.projectKey).toBe("OPS");
+  });
+
+  it("skips the cache write when the answer had no retrieved or cached evidence", () => {
+    // A confident-sounding "I could not find anything" must never become
+    // cached evidence for future tickets.
+    const result = makePlanActionsNode(deps)(answeredState({ context: null, cacheHits: [] }));
+    expect(result.cacheWrite).toBeUndefined();
+  });
+
+  it("keeps the cache write when a cache hit was the evidence", () => {
+    const hit = { ticketKey: "IT-9", question: "q", resolution: "r", score: 0.85, strong: false };
+    const result = makePlanActionsNode(deps)(answeredState({ context: null, cacheHits: [hit] }));
+    expect(result.cacheWrite).toBeDefined();
   });
 
   it("skips the cache write below the confidence floor", () => {

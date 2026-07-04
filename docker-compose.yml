@@ -189,7 +189,10 @@ services:
       DATABASE_URL: "postgresql://${POSTGRES_USER:-fredy}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-fredy}"
       CHUNKS_TABLE: "${CHUNKS_TABLE:-chunks}"
       RAG_DEFAULT_RETRIEVAL_LIMIT: "${RAG_DEFAULT_RETRIEVAL_LIMIT:-5}"
-      RAG_SCORE_THRESHOLD: "${RAG_SCORE_THRESHOLD:-0.7}"
+      # Deliberately looser than the chat agent's 0.7: short German ticket
+      # queries against text-embedding-3-small score ~0.55–0.65 on clearly
+      # relevant chunks; 0.7 returns nothing and forces know-nothing answers.
+      RAG_SCORE_THRESHOLD: "${JIRA_RAG_SCORE_THRESHOLD:-0.5}"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}"
       OTEL_GENAI_CAPTURE_CONTENT: "${OTEL_GENAI_CAPTURE_CONTENT:-false}"

@@ -121,9 +121,13 @@ describe("triage graph paths", () => {
     expect(client.callsOf("transitionIssue")[0]?.args).toEqual(["IT-1", "41"]);
   });
 
-  it("answers directly and writes the cache on a confident answer", async () => {
+  it("answers from retrieved context and writes the cache", async () => {
     const { agent, client, cache } = setup({
-      classifications: [classification()],
+      classifications: [
+        classification({ path: "need_context", retrievalQuery: "vpn neustart" }),
+        classification(),
+      ],
+      chunkHits: [chunkHit("VPN-Client über das Tray-Icon neu starten.")],
       answerText: "Bitte VPN-Client neu starten.",
     });
     const outcome = await agent.process({ issueKey: "IT-1", trigger: "assigned" });
@@ -138,6 +142,28 @@ describe("triage graph paths", () => {
         resolutionText: "Bitte VPN-Client neu starten.",
       }),
     );
+  });
+
+  it("asks the reporter instead of answering when retrieval finds nothing", async () => {
+    // Regression for KAN-2: empty retrieval used to be coerced into a
+    // know-nothing answer that was then cached and marked done.
+    const { agent, cache } = setup({
+      classifications: [
+        classification({ path: "need_context", retrievalQuery: "tech radar ai tools" }),
+        classification({ path: "need_context" }),
+      ],
+      chunkHits: [],
+      answerText: "Kannst du die Quelle des Tech-Radars nennen?",
+    });
+    const outcome = await agent.process({ issueKey: "IT-1", trigger: "assigned" });
+
+    expect(outcome.path).toBe("clarification");
+    expect(outcome.actionsApplied).toEqual([
+      "addComment",
+      "transition:waiting-for-reporter",
+      "assignIssue:reporter-1",
+    ]);
+    expect(cache.upsert).not.toHaveBeenCalled();
   });
 
   it("uses the cache path: records the hit, never re-caches", async () => {

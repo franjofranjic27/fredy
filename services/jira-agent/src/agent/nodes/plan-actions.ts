@@ -20,6 +20,9 @@ function handlerActions(state: TicketState): JiraAction[] {
 function cacheWriteFor(state: TicketState, projectKey: string): CacheEntry | undefined {
   if (state.outcome !== "answered") return undefined;
   if ((state.classification?.confidence ?? 0) < CACHE_WRITE_MIN_CONFIDENCE) return undefined;
+  // An answer composed without retrieved or cached evidence is a guess —
+  // cached, it would be served as a proven resolution to future tickets.
+  if (state.context === null && state.cacheHits.length === 0) return undefined;
   if (!state.cacheQuestion || !state.cacheQueryEmbedding) return undefined;
   return {
     ticketKey: state.issueKey,
