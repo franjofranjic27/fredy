@@ -21,6 +21,11 @@ export interface AgentRunInput {
   readonly allowedToolNames?: readonly string[];
   readonly temperature?: number;
   readonly maxTokens?: number;
+  /**
+   * Aborts in-flight LLM/tool calls when the client disconnects, so cancelled
+   * requests stop costing tokens. Propagate into every downstream call.
+   */
+  readonly signal?: AbortSignal;
 }
 
 export interface AgentRunResult {
@@ -29,11 +34,20 @@ export interface AgentRunResult {
   readonly usage?: AgentUsage;
 }
 
+/**
+ * Streaming protocol: any number of `delta` events followed by exactly one
+ * terminal `done` event carrying usage/model metadata (when the underlying
+ * provider reports it) — mirrors OpenAI's `stream_options.include_usage`.
+ */
+export type AgentStreamEvent =
+  | { readonly type: "delta"; readonly text: string }
+  | { readonly type: "done"; readonly usage?: AgentUsage; readonly model?: string };
+
 /** A ready-to-serve agent instance bound to its dependencies. */
 export interface AgentRun {
   invoke(input: AgentRunInput): Promise<AgentRunResult>;
-  /** Streams answer text deltas. */
-  stream(input: AgentRunInput): AsyncIterable<string>;
+  /** Streams answer deltas, terminated by a single `done` event. */
+  stream(input: AgentRunInput): AsyncIterable<AgentStreamEvent>;
 }
 
 /**

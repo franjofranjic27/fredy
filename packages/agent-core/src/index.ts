@@ -24,7 +24,9 @@ export { OtelCallbackHandler, contentToString } from "./otel/langchain-callback.
 export {
   resolveChatModel,
   providerForModel,
+  clampTemperature,
   DEFAULT_MAX_TOKENS,
+  DEFAULT_MAX_RETRIES,
   type LlmProvider,
   type ProviderSettings,
   type OpenAiProviderSettings,
@@ -42,6 +44,7 @@ export {
   type AgentRun,
   type AgentRunInput,
   type AgentRunResult,
+  type AgentStreamEvent,
   type AgentUsage,
   type ChatMessage,
   type ChatRole,
