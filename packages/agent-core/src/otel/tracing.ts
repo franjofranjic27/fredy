@@ -11,14 +11,46 @@ export interface TracingHandle {
   shutdown: () => Promise<void>;
 }
 
-let activeSdk: NodeSDK | null = null;
+/** Minimal slice of NodeSDK the module relies on — lets tests inject a fake. */
+interface SdkLike {
+  start: () => void;
+  shutdown: () => Promise<void>;
+}
+
+interface SdkConfig {
+  resource: ReturnType<typeof resourceFromAttributes>;
+  traceExporter: OTLPTraceExporter | undefined;
+}
+
+export type SdkFactory = (config: SdkConfig) => SdkLike;
+
+/** Real SDK with the full node auto-instrumentation suite (fs disabled). */
+function defaultSdkFactory({ resource, traceExporter }: SdkConfig): SdkLike {
+  return new NodeSDK({
+    resource,
+    traceExporter,
+    instrumentations: [
+      getNodeAutoInstrumentations({
+        "@opentelemetry/instrumentation-fs": { enabled: false },
+      }),
+    ],
+  });
+}
+
+let activeSdk: SdkLike | null = null;
 
 /**
  * Initialise OpenTelemetry tracing. MUST be the first import side effect of a
  * service entry point so auto-instrumentation can patch HTTP clients.
  * Idempotent: repeated calls reuse the active SDK.
+ *
+ * `sdkFactory` is injectable so unit tests can avoid booting the (slow, ~40
+ * module) real auto-instrumentation suite.
  */
-export function initTracing(serviceName: string): TracingHandle {
+export function initTracing(
+  serviceName: string,
+  sdkFactory: SdkFactory = defaultSdkFactory,
+): TracingHandle {
   if (activeSdk) {
     return { shutdown };
   }
@@ -34,15 +66,7 @@ export function initTracing(serviceName: string): TracingHandle {
     ? new OTLPTraceExporter({ url: `${endpoint.replace(/\/$/, "")}/v1/traces` })
     : undefined;
 
-  activeSdk = new NodeSDK({
-    resource,
-    traceExporter,
-    instrumentations: [
-      getNodeAutoInstrumentations({
-        "@opentelemetry/instrumentation-fs": { enabled: false },
-      }),
-    ],
-  });
+  activeSdk = sdkFactory({ resource, traceExporter });
 
   activeSdk.start();
 
