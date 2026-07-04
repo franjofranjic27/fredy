@@ -6,6 +6,10 @@ commit-msg:
 pre-commit:
   parallel: true
   commands:
+    typecheck-agent-core:
+      run: cd packages/agent-core && pnpm exec tsc --noEmit
+    lint-agent-core:
+      run: cd packages/agent-core && pnpm lint
     typecheck-agent:
       run: cd services/agent && pnpm exec tsc --noEmit
     lint-agent:
@@ -14,6 +18,8 @@ pre-commit:
       run: cd services/confluence-importer && uv run ruff check . && uv run ruff format --check .
     lint-eval:
       run: cd services/eval && uv run ruff check . && uv run ruff format --check .
+    test-agent-core:
+      run: cd packages/agent-core && pnpm test
     test-agent:
       run: cd services/agent && pnpm test
     test-confluence-importer:

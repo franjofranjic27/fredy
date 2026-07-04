@@ -6,16 +6,15 @@ FROM node:22-alpine AS deps
 WORKDIR /repo
 RUN corepack enable && corepack prepare pnpm@10.28.2 --activate
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
-COPY packages/common/package.json ./packages/common/
+COPY packages/agent-core/package.json ./packages/agent-core/
 COPY services/agent/package.json ./services/agent/
-COPY services/confluence-importer/package.json ./services/confluence-importer/
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
-# Stage 2: build common + agent
+# Stage 2: build agent-core + agent
 FROM deps AS build
-COPY packages/common ./packages/common
+COPY packages/agent-core ./packages/agent-core
 COPY services/agent ./services/agent
-RUN pnpm --filter @fredy/common build \
+RUN pnpm --filter @fredy/agent-core build \
  && pnpm --filter @fredy/agent build
 
 # Stage 3: produce a self-contained production bundle via pnpm deploy

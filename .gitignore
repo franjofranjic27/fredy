@@ -40,8 +40,10 @@ data/confluence-files/*
 !data/confluence-files/.gitkeep
 
 # Test coverage
+coverage/
 services/agent/coverage/
 services/confluence-importer/coverage/
+packages/agent-core/coverage/
 coverage.xml
 .coverage
 .pytest_cache/

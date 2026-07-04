@@ -116,8 +116,9 @@ services:
       - .env
     depends_on:
       - postgres
-    ports:
-      - "8001:8001"
+    # Not published to the host: Open-WebUI reaches the agent over the internal
+    # network via the fredy-agent hostname. Re-add `ports: ["8001:8001"]` only
+    # for local debugging.
     environment:
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
@@ -128,11 +129,18 @@ services:
       EMBEDDING_MODEL: "${EMBEDDING_MODEL:-text-embedding-3-small}"
       DATABASE_URL: "postgresql://${POSTGRES_USER:-fredy}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-fredy}"
       CHUNKS_TABLE: "${CHUNKS_TABLE:-chunks}"
+      RAG_PROFILE: "${RAG_PROFILE:-}"
+      RERANKER: "${RERANKER:-none}"
+      RERANK_API_KEY: "${RERANK_API_KEY:-}"
+      RERANK_MODEL: "${RERANK_MODEL:-}"
+      RERANK_TOP_N: "${RERANK_TOP_N:-10}"
+      RERANK_THRESHOLD: "${RERANK_THRESHOLD:-0.0}"
       PORT: "8001"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
       ROLE_TOOL_CONFIG: >-
         {"admin":["vector_search","fetch_url","get_knowledge_base_stats"],"user":["vector_search","get_knowledge_base_stats"]}
       AGENT_API_KEY: "${AGENT_API_KEY:-}"
+      AGENT_ALLOW_ANONYMOUS: "${AGENT_ALLOW_ANONYMOUS:-false}"
       KEYCLOAK_JWKS_URL: "${KEYCLOAK_JWKS_URL:-}"
       KEYCLOAK_ISSUER: "${KEYCLOAK_ISSUER:-}"
       KEYCLOAK_AUDIENCE: "${KEYCLOAK_AUDIENCE:-fredy-agent}"

@@ -27,11 +27,17 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build shared packages
-        run: pnpm --filter @fredy/common run build
+      # The agent imports @fredy/agent-core from dist, so build it first
+      - name: Build agent-core
+        run: pnpm --filter @fredy/agent-core run build
 
+      # Produces packages/agent-core/coverage/lcov.info for the Sonar scan
+      - name: Run agent-core tests with coverage
+        run: cd packages/agent-core && pnpm test
+
+      # Produces services/agent/coverage/lcov.info for the Sonar scan
       - name: Run agent tests with coverage
-        run: cd services/agent && pnpm test:coverage
+        run: cd services/agent && pnpm test
 
       - uses: astral-sh/setup-uv@v7
         with:
