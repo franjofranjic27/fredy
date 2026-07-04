@@ -86,6 +86,7 @@ All commits in this repository MUST follow this format:
 **Scopes** (use the most specific one that applies):
 - `confluence-importer` — Confluence → pgvector ingestion service (`services/confluence-importer/`)
 - `agent` — AI agent service (`services/agent/`)
+- `jira-agent` — autonomous Jira ticket agent (`services/jira-agent/`)
 - `mcp` — MCP servers (`services/mcp-*`)
 - `infra` — Docker, docker-compose, deployment configs
 - `config` — Environment, build, or project-level config
