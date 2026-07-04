@@ -82,7 +82,6 @@ const envSchema = z.object({
   RATE_LIMIT_RPM: numberWithDefault(60),
   RATE_LIMIT_BURST: numberWithDefault(10),
   TRUST_PROXY: optionalString,
-  FETCH_URL_TIMEOUT_MS: numberWithDefault(10_000),
   OTEL_EXPORTER_OTLP_ENDPOINT: optionalString,
   OTEL_GENAI_CAPTURE_CONTENT: optionalString,
 });
@@ -148,7 +147,6 @@ export interface AppConfig {
   };
   readonly rateLimit: { readonly rpm: number; readonly burst: number };
   readonly trustProxy: boolean | string;
-  readonly fetchUrl: { readonly timeoutMs: number };
 }
 
 /**
@@ -233,6 +231,5 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     rateLimit: { rpm: parsed.RATE_LIMIT_RPM, burst: parsed.RATE_LIMIT_BURST },
     trustProxy: parseTrustProxy(parsed.TRUST_PROXY),
-    fetchUrl: { timeoutMs: parsed.FETCH_URL_TIMEOUT_MS },
   };
 }

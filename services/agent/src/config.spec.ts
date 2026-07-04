@@ -27,7 +27,6 @@ describe("loadConfig", () => {
     expect(config.auth.roleToolConfig.size).toBe(0);
     expect(config.rateLimit).toEqual({ rpm: 60, burst: 10 });
     expect(config.trustProxy).toBe(false);
-    expect(config.fetchUrl.timeoutMs).toBe(10_000);
   });
 
   it("treats empty strings as unset (docker-compose passes empty values)", () => {
@@ -111,16 +110,6 @@ describe("loadConfig", () => {
 
     it("passes a CIDR/IP list string through for real proxy deployments", () => {
       expect(load({ TRUST_PROXY: "10.0.0.0/8" }).trustProxy).toBe("10.0.0.0/8");
-    });
-  });
-
-  describe("fetch_url timeout", () => {
-    it("defaults to 10s", () => {
-      expect(load({}).fetchUrl.timeoutMs).toBe(10_000);
-    });
-
-    it("reads FETCH_URL_TIMEOUT_MS", () => {
-      expect(load({ FETCH_URL_TIMEOUT_MS: "2500" }).fetchUrl.timeoutMs).toBe(2500);
     });
   });
 

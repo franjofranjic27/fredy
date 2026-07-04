@@ -11,8 +11,6 @@ import { createReranker } from "./rerank/factory.js";
 import { createRagAgent } from "./agents/rag-agent/rag-agent.js";
 import { buildServer } from "./server.js";
 import { createEmbeddingClient } from "./tools/embeddings.js";
-import { createFetchUrlTool } from "./tools/fetch-url.js";
-import { createKnowledgeBaseStatsTool } from "./tools/knowledge-base-stats.js";
 import { PgVectorStore } from "./tools/pgvector.js";
 import { createVectorSearchTool } from "./tools/vector-search.js";
 
@@ -41,8 +39,6 @@ async function bootstrap(): Promise<void> {
         scoreThreshold: config.retrieval.scoreThreshold,
       }),
     );
-    toolRegistry.register(createKnowledgeBaseStatsTool(store));
-    toolRegistry.register(createFetchUrlTool({ timeoutMs: config.fetchUrl.timeoutMs }));
 
     const reranker = createReranker(config.rerank);
 

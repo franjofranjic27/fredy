@@ -106,12 +106,4 @@ export class PgVectorStore {
       throw error;
     }
   }
-
-  async count(): Promise<number> {
-    const { rows } = await this.pool.query(
-      `SELECT count(*)::text AS count FROM ${this.collectionName}`,
-    );
-    const first = rows[0] as { count?: string } | undefined;
-    return Number(first?.count ?? 0);
-  }
 }

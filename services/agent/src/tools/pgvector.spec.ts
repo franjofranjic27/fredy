@@ -80,19 +80,6 @@ describe("PgVectorStore.search", () => {
   });
 });
 
-describe("PgVectorStore.count", () => {
-  it("counts rows via count(*)", async () => {
-    const { store, query } = makeStore([{ count: "42" }]);
-    await expect(store.count()).resolves.toBe(42);
-    expect(query.mock.calls[0][0]).toContain("count(*)");
-  });
-
-  it("returns 0 when the count query yields no rows", async () => {
-    const { store } = makeStore([]);
-    await expect(store.count()).resolves.toBe(0);
-  });
-});
-
 describe("identifier handling", () => {
   it("exposes providerId and collectionName", () => {
     const { store } = makeStore([], "chunks");

@@ -38,7 +38,6 @@ services/agent/src/
 │   ├── query-split.ts          Heuristic expansion (≤5 queries)
 │   └── system-prompt.ts        Grounding prompt + verbatim refusal text
 ├── tools/                      LangChain tools: vector_search,
-│                               get_knowledge_base_stats, fetch_url (SSRF-hardened),
 │                               embeddings client, pgvector store
 └── rerank/                     Cohere /v2/rerank and Voyage /v1/rerank clients
 ```
@@ -114,3 +113,4 @@ pnpm --filter @fredy/agent lint
 - **Server-side session memory** — Open-WebUI sends the full conversation history with every request, so per-session state added complexity without benefit. The `x-session-id` header is kept purely for trace/log correlation.
 - **MCP stdio entry point** — unused; the tool registry is now consumed directly by the agent graph. An MCP server can be reintroduced as a separate thin entry point on top of `ToolRegistry` if needed.
 - **Hand-written LLM provider clients** — replaced by LangChain chat models (`@langchain/anthropic`, `@langchain/openai`, `@langchain/google-genai`) resolved through `agent-core`'s `resolveChatModel`.
+- **`fetch_url` and `get_knowledge_base_stats` tools** — registered but never invoked: the deterministic RAG graph only calls `vector_search`, so they were dead code with real maintenance surface (SSRF hardening). Restore them from git history once an agent actually dispatches tools (e.g. a ReAct loop or an MCP entry point).
