@@ -17,6 +17,14 @@ Jira-internal operations only (comment, assign, transition).
   is set, and requires a publicly reachable endpoint (cloudflared/ngrok
   tunnel or a cloud deployment) — locally the poller does all the work.
 
+  Setup in Jira Cloud (Settings → System → WebHooks): URL
+  `https://<public-host>/webhooks/jira`, secret = `JIRA_WEBHOOK_SECRET`,
+  events "Issue created" and "Issue updated", optionally scoped with the
+  same JQL as the poller. Requests are authenticated via the
+  `x-hub-signature` HMAC-SHA256 header over the raw body; invalid
+  signatures get 401, and the endpoint always acks valid requests with
+  204 immediately — processing happens in the background queue.
+
 ## Label protocol (idempotency)
 
 The agent claims and releases tickets via labels, visible on the board:

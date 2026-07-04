@@ -15,6 +15,7 @@ function makeServer() {
     config,
     logger: createTestLogger().logger,
     getPollerStatus: () => ({ lastRunAt: "2026-01-01T00:00:00Z", lastError: null, queueDepth: 2 }),
+    enqueue: () => true,
   });
 }
 

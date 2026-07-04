@@ -53,6 +53,7 @@ async function bootstrap(): Promise<void> {
       config,
       logger,
       getPollerStatus: () => ({ ...poller.status, queueDepth: queue.depth }),
+      enqueue: (event) => queue.enqueue(event),
     });
 
     const shutdown = async (signal: string): Promise<void> => {
