@@ -62,10 +62,17 @@ export class FakeChatModel extends BaseChatModel<BaseChatModelCallOptions> {
   ): AsyncGenerator<ChatGenerationChunk> {
     if (this.failWith) throw this.failWith;
     this.receivedMessages.push(messages);
-    for (const text of this.chunks) {
+    for (const [index, text] of this.chunks.entries()) {
+      // Real providers attach usage/model metadata to the final chunk; the
+      // aggregated invoke() result then carries them in streaming mode too.
+      const isLast = index === this.chunks.length - 1;
       const chunk = new ChatGenerationChunk({
         text,
-        message: new AIMessageChunk({ content: text }),
+        message: new AIMessageChunk({
+          content: text,
+          usage_metadata: isLast ? this.usage : undefined,
+          response_metadata: isLast ? { model: this.modelName } : undefined,
+        }),
       });
       yield chunk;
       await runManager?.handleLLMNewToken(text);

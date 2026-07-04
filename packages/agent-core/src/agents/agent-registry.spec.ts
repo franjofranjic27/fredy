@@ -5,9 +5,10 @@ import { AgentRegistry } from "./agent-registry.js";
 function makeRun(): AgentRun {
   return {
     invoke: async () => ({ content: "ok", model: "m" }),
-     
+
     stream: async function* () {
-      yield "ok";
+      yield { type: "delta", text: "ok" } as const;
+      yield { type: "done" } as const;
     },
   };
 }

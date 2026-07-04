@@ -65,6 +65,28 @@ describe("resolveChatModel", () => {
     expect((model as ChatAnthropic).temperature).toBe(0.3);
   });
 
+  it("clamps the temperature to the Anthropic range (0–1)", () => {
+    const model = resolveChatModel("claude-sonnet-4-5", { ...baseOptions, temperature: 1.5 });
+    expect((model as ChatAnthropic).temperature).toBe(1);
+  });
+
+  it("clamps negative temperatures to 0", () => {
+    const model = resolveChatModel("claude-sonnet-4-5", { ...baseOptions, temperature: -0.5 });
+    expect((model as ChatAnthropic).temperature).toBe(0);
+  });
+
+  it("allows OpenAI temperatures up to 2", () => {
+    const model = resolveChatModel("gpt-4o", { ...baseOptions, temperature: 1.5 });
+    expect((model as ChatOpenAI).temperature).toBe(1.5);
+  });
+
+  it("configures retries on the resolved model", () => {
+    // LangChain models forward maxRetries into their AsyncCaller.
+    const model = resolveChatModel("claude-sonnet-4-5", baseOptions);
+    const caller = (model as unknown as { caller: { maxRetries: number } }).caller;
+    expect(caller.maxRetries).toBe(2);
+  });
+
   it("falls back to the configured model with a warning on unknown prefixes", () => {
     const warn = vi.fn();
     const model = resolveChatModel("mistral-large", { ...baseOptions, logger: { warn } });

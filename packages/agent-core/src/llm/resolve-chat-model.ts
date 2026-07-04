@@ -4,6 +4,22 @@ import { ChatOpenAI } from "@langchain/openai";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 
 export const DEFAULT_MAX_TOKENS = 4096;
+export const DEFAULT_MAX_RETRIES = 2;
+
+/** Providers accept different temperature ranges (Anthropic 0–1, OpenAI/Gemini 0–2). */
+const TEMPERATURE_MAX: Record<LlmProvider, number> = {
+  anthropic: 1,
+  openai: 2,
+  gemini: 2,
+};
+
+export function clampTemperature(
+  temperature: number | undefined,
+  provider: LlmProvider,
+): number | undefined {
+  if (temperature === undefined) return undefined;
+  return Math.min(Math.max(temperature, 0), TEMPERATURE_MAX[provider]);
+}
 
 export type LlmProvider = "anthropic" | "openai" | "gemini";
 
@@ -69,20 +85,23 @@ export function resolveChatModel(
     return resolveChatModel(options.fallbackModel, options);
   }
 
+  const temperature = clampTemperature(options.temperature, provider);
   switch (provider) {
     case "anthropic":
       return new ChatAnthropic({
         model: requested,
         apiKey: options.anthropic?.apiKey,
         maxTokens: options.maxTokens ?? options.anthropic?.maxTokens ?? DEFAULT_MAX_TOKENS,
-        ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+        maxRetries: DEFAULT_MAX_RETRIES,
+        ...(temperature !== undefined ? { temperature } : {}),
       });
     case "openai":
       return new ChatOpenAI({
         model: requested,
         apiKey: options.openai?.apiKey,
         maxTokens: options.maxTokens ?? options.openai?.maxTokens ?? DEFAULT_MAX_TOKENS,
-        ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+        maxRetries: DEFAULT_MAX_RETRIES,
+        ...(temperature !== undefined ? { temperature } : {}),
         ...(options.openai?.baseUrl ? { configuration: { baseURL: options.openai.baseUrl } } : {}),
       });
     case "gemini":
@@ -90,7 +109,8 @@ export function resolveChatModel(
         model: requested,
         apiKey: options.gemini?.apiKey,
         maxOutputTokens: options.maxTokens ?? options.gemini?.maxTokens ?? DEFAULT_MAX_TOKENS,
-        ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+        maxRetries: DEFAULT_MAX_RETRIES,
+        ...(temperature !== undefined ? { temperature } : {}),
       });
   }
 }

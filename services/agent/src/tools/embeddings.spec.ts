@@ -54,6 +54,22 @@ describe("openai embedding client", () => {
     const client = createEmbeddingClient("openai", { apiKey: "k", model: "m" }, fetchImpl);
     await expect(client.embedQuery("x")).rejects.toThrow("OpenAI embedding failed: 429");
   });
+
+  it("fails with a clear error when the response contains no embedding", async () => {
+    const fetchImpl = fetchReturning({ data: [] });
+    const client = createEmbeddingClient("openai", { apiKey: "k", model: "m" }, fetchImpl);
+    await expect(client.embedQuery("x")).rejects.toThrow(
+      "OpenAI embedding response contained no embedding data",
+    );
+  });
+
+  it("sends an abort signal so a hanging provider cannot block forever", async () => {
+    const fetchImpl = fetchReturning({ data: [{ embedding: [1] }] });
+    const client = createEmbeddingClient("openai", { apiKey: "k", model: "m" }, fetchImpl);
+    await client.embedQuery("x");
+    const init = vi.mocked(fetchImpl).mock.calls[0][1] as RequestInit;
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
 });
 
 describe("voyage embedding client", () => {

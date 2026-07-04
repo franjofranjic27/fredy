@@ -10,13 +10,14 @@ import {
   type AgentRun,
   type AgentRunInput,
   type AgentRunResult,
+  type AgentStreamEvent,
+  type AgentUsage,
   type Logger,
   type ToolRegistry,
 } from "@fredy/agent-core";
 import type { AppConfig } from "../../config.js";
 import type { Reranker } from "../../rerank/reranker.js";
 import { buildRagGraph, type CreateModelOptions, type RagState } from "./graph.js";
-import { RAG_FALLBACK_RESPONSE } from "./system-prompt.js";
 
 export const RAG_AGENT_ID = "rag-agent";
 
@@ -24,39 +25,54 @@ export const RAG_AGENT_ID = "rag-agent";
 export interface RagStreamEvent {
   readonly event: string;
   readonly name?: string;
+  readonly metadata?: { readonly langgraph_node?: string };
   readonly data?: {
     readonly chunk?: { readonly content?: unknown };
-    readonly output?: { readonly answer?: string };
+    readonly output?: {
+      readonly answer?: string;
+      readonly usage?: AgentUsage;
+      readonly responseModel?: string;
+    };
   };
 }
 
 /**
- * Maps LangGraph stream events to the text deltas sent over SSE.
+ * Maps LangGraph stream events to the AgentStreamEvents sent over SSE.
  *
- * Streamed model tokens (on_chat_model_stream) are forwarded as they arrive and
- * set a guard so the terminal on_chain_end("generate") whole-answer emission is
- * suppressed — otherwise streaming providers would emit the answer twice. The
- * generate emission only fires for providers that don't stream tokens. The
- * refuse node emits the verbatim fallback response.
+ * Only tokens emitted inside the "generate" node are forwarded — the graph may
+ * run other LLM calls (query rewrite in "retrieve") whose tokens must never
+ * reach the client. Streamed tokens set a guard so the terminal
+ * on_chain_end("generate") whole-answer emission is suppressed — otherwise
+ * streaming providers would emit the answer twice; it only fires for providers
+ * that don't stream tokens. The refuse node emits its language-matched
+ * fallback answer. A single terminal `done` event carries usage/model.
  */
 export async function* mapRagStreamEvents(
   events: AsyncIterable<RagStreamEvent>,
-): AsyncGenerator<string> {
+): AsyncGenerator<AgentStreamEvent> {
   let streamedTokens = false;
+  let usage: AgentUsage | undefined;
+  let model: string | undefined;
   for await (const event of events) {
     if (event.event === "on_chat_model_stream") {
+      if (event.metadata?.langgraph_node !== "generate") continue;
       const text = contentToString(event.data?.chunk?.content);
       if (text) {
         streamedTokens = true;
-        yield text;
+        yield { type: "delta", text };
       }
     } else if (event.event === "on_chain_end" && event.name === "refuse") {
-      yield RAG_FALLBACK_RESPONSE;
-    } else if (event.event === "on_chain_end" && event.name === "generate" && !streamedTokens) {
       const answer = event.data?.output?.answer;
-      if (answer) yield answer;
+      if (answer) yield { type: "delta", text: answer };
+      model = event.data?.output?.responseModel ?? model;
+    } else if (event.event === "on_chain_end" && event.name === "generate") {
+      usage = event.data?.output?.usage ?? usage;
+      model = event.data?.output?.responseModel ?? model;
+      const answer = event.data?.output?.answer;
+      if (!streamedTokens && answer) yield { type: "delta", text: answer };
     }
   }
+  yield { type: "done", usage, model };
 }
 
 /**
@@ -97,6 +113,7 @@ function initialState(input: AgentRunInput, requestId: string): RagState {
     temperature: input.temperature,
     maxTokens: input.maxTokens,
     startedAt: Date.now(),
+    retrievalQuery: undefined,
     context: null,
     answer: "",
     usage: undefined,
@@ -138,6 +155,8 @@ export function createRagAgent(): AgentDefinition<RagAgentDeps> {
         },
         createModel,
         tokenBudget: config.retrieval.tokenBudget,
+        historyTokenBudget: config.retrieval.historyTokenBudget,
+        queryRewrite: config.retrieval.queryRewrite,
         fallbackModel: config.llm.fallbackModel,
         logger: deps.logger,
       });
@@ -145,7 +164,7 @@ export function createRagAgent(): AgentDefinition<RagAgentDeps> {
 
       return {
         async invoke(input: AgentRunInput): Promise<AgentRunResult> {
-          const requestId = `${input.sessionId}-${Date.now()}`;
+          const requestId = `${input.sessionId}-${randomUUID()}`;
           const span = tracer.startSpan("agent.run", {
             attributes: { [AGENT.NAME]: RAG_AGENT_ID, [AGENT.SESSION_ID]: input.sessionId },
           });
@@ -156,6 +175,7 @@ export function createRagAgent(): AgentDefinition<RagAgentDeps> {
                 graph.invoke(initialState(input, requestId), {
                   callbacks: [otelCallback],
                   runName: RAG_AGENT_ID,
+                  signal: input.signal,
                 }),
             );
             span.setStatus({ code: SpanStatusCode.OK });
@@ -173,8 +193,8 @@ export function createRagAgent(): AgentDefinition<RagAgentDeps> {
           }
         },
 
-        async *stream(input: AgentRunInput): AsyncIterable<string> {
-          const requestId = `${input.sessionId}-${Date.now()}`;
+        async *stream(input: AgentRunInput): AsyncIterable<AgentStreamEvent> {
+          const requestId = `${input.sessionId}-${randomUUID()}`;
           const span = tracer.startSpan("agent.run", {
             attributes: { [AGENT.NAME]: RAG_AGENT_ID, [AGENT.SESSION_ID]: input.sessionId },
           });
@@ -184,6 +204,7 @@ export function createRagAgent(): AgentDefinition<RagAgentDeps> {
               version: "v2",
               callbacks: [otelCallback],
               runName: `${RAG_AGENT_ID}-${randomUUID()}`,
+              signal: input.signal,
             }) as AsyncIterable<RagStreamEvent>;
             yield* mapRagStreamEvents(withActiveSpanContext(events, spanContext));
             span.setStatus({ code: SpanStatusCode.OK });

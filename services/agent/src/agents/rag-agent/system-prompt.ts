@@ -10,5 +10,26 @@ Guidelines:
 - Respond in the same language the user used (German or English).
 - Keep responses focused and avoid filler.`;
 
-export const RAG_FALLBACK_RESPONSE =
+export const RAG_FALLBACK_RESPONSE_EN =
   "I'm sorry, I don't know the answer to that question. The relevant documentation may not be indexed in the knowledge base, or my access to it was restricted.";
+
+export const RAG_FALLBACK_RESPONSE_DE =
+  "Es tut mir leid, darauf habe ich keine Antwort. Die passende Dokumentation ist möglicherweise nicht in der Wissensdatenbank indexiert, oder mein Zugriff darauf war eingeschränkt.";
+
+/** Kept for backwards compatibility with existing tests/imports. */
+export const RAG_FALLBACK_RESPONSE = RAG_FALLBACK_RESPONSE_EN;
+
+const GERMAN_MARKERS =
+  /\b(der|die|das|und|oder|nicht|ich|ist|sind|wie|was|wer|wo|kann|könnte|bitte|für|mit|ein|eine|auf|wird|werden|muss|habe|gibt|welche|wenn)\b/i;
+
+/**
+ * The refusal never goes through the LLM, so the "answer in the user's
+ * language" instruction from the system prompt cannot apply — pick the
+ * fallback language heuristically instead (umlauts/ß or common German words).
+ */
+export function fallbackResponseFor(userMessage: string): string {
+  if (/[äöüßÄÖÜ]/.test(userMessage) || GERMAN_MARKERS.test(userMessage)) {
+    return RAG_FALLBACK_RESPONSE_DE;
+  }
+  return RAG_FALLBACK_RESPONSE_EN;
+}

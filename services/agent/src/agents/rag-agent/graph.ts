@@ -10,9 +10,10 @@ import {
   type Logger,
 } from "@fredy/agent-core";
 import { emitLogEvent } from "../../observability/log-events.js";
+import { rewriteQuery } from "./query-rewrite.js";
 import { retrieveContext, type RetrievalDeps } from "./retrieval.js";
-import { RAG_FALLBACK_RESPONSE, RAG_SYSTEM_PROMPT } from "./system-prompt.js";
-import { trimToTokenBudget } from "./token-utils.js";
+import { fallbackResponseFor, RAG_SYSTEM_PROMPT } from "./system-prompt.js";
+import { trimHistoryToBudget, trimToTokenBudget } from "./token-utils.js";
 
 export interface CreateModelOptions {
   readonly temperature?: number;
@@ -23,6 +24,9 @@ export interface RagGraphDeps {
   readonly retrieval: RetrievalDeps;
   readonly createModel: (options: CreateModelOptions) => BaseChatModel;
   readonly tokenBudget: number;
+  readonly historyTokenBudget: number;
+  /** Condense follow-up questions into standalone retrieval queries via a cheap LLM call. */
+  readonly queryRewrite: boolean;
   readonly fallbackModel: string;
   readonly logger: Logger;
 }
@@ -36,6 +40,8 @@ const RagStateAnnotation = Annotation.Root({
   temperature: Annotation<number | undefined>,
   maxTokens: Annotation<number | undefined>,
   startedAt: Annotation<number>,
+  /** The (possibly history-rewritten) query used for retrieval and reranking. */
+  retrievalQuery: Annotation<string | undefined>,
   context: Annotation<string | null>,
   answer: Annotation<string>,
   usage: Annotation<AgentUsage | undefined>,
@@ -90,13 +96,28 @@ function extractResponseModel(message: AIMessage): string | undefined {
  * without touching the HTTP layer or the agent contract.
  */
 export function buildRagGraph(deps: RagGraphDeps) {
-  const retrieve = async (state: RagState): Promise<Partial<RagState>> => {
+  const retrieve = async (state: RagState, config: RunnableConfig): Promise<Partial<RagState>> => {
+    let retrievalQuery = state.userMessage;
+    if (deps.queryRewrite) {
+      retrievalQuery = await rewriteQuery(
+        state.userMessage,
+        state.messages,
+        { createModel: deps.createModel, logger: deps.logger },
+        config,
+      );
+      if (retrievalQuery !== state.userMessage) {
+        deps.logger.debug(
+          { original: state.userMessage, rewritten: retrievalQuery },
+          "Query rewritten for retrieval",
+        );
+      }
+    }
     const context = await retrieveContext(
-      state.userMessage,
+      retrievalQuery,
       { requestId: state.requestId, allowedToolNames: state.allowedToolNames },
       deps.retrieval,
     );
-    return { context };
+    return { context, retrievalQuery };
   };
 
   const refuse = (state: RagState): Partial<RagState> => {
@@ -109,7 +130,7 @@ export function buildRagGraph(deps: RagGraphDeps) {
       durationMs: Date.now() - state.startedAt,
       finishReason: "fallback",
     });
-    return { answer: RAG_FALLBACK_RESPONSE, responseModel: deps.fallbackModel };
+    return { answer: fallbackResponseFor(state.userMessage), responseModel: deps.fallbackModel };
   };
 
   const generate = async (state: RagState, config: RunnableConfig): Promise<Partial<RagState>> => {
@@ -120,10 +141,15 @@ export function buildRagGraph(deps: RagGraphDeps) {
       maxTokens: state.maxTokens,
     });
 
-    const response = await model.invoke(
-      [new SystemMessage(system), ...toLangChainHistory(state.messages, state.userMessage)],
-      config,
-    );
+    const history = trimHistoryToBudget(
+      toLangChainHistory(state.messages, state.userMessage).map((message) => ({
+        message,
+        content: contentToString(message.content),
+      })),
+      deps.historyTokenBudget,
+    ).map((entry) => entry.message);
+
+    const response = await model.invoke([new SystemMessage(system), ...history], config);
 
     const usage = extractUsage(response);
     const responseModel = extractResponseModel(response) ?? deps.fallbackModel;

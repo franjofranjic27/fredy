@@ -87,6 +87,16 @@ describe("TokenBucketRateLimiter", () => {
 });
 
 describe("identifyClient", () => {
+  it("prefers the verified JWT subject over the IP (shared Open-WebUI egress)", () => {
+    const request = {
+      headers: {},
+      ip: "203.0.113.9",
+      socket: { remoteAddress: "203.0.113.9" },
+      user: { sub: "user-123" },
+    } as unknown as FastifyRequest;
+    expect(identifyClient(request)).toBe("sub:user-123");
+  });
+
   it("keys on request.ip and ignores a spoofed X-Forwarded-For header", () => {
     // request.ip is the raw socket address when trustProxy is off, so a client
     // cannot shift its bucket by forging X-Forwarded-For.

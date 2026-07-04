@@ -46,9 +46,9 @@ services/agent/src/
 
 The pipeline is a LangGraph `StateGraph`, so each stage is swappable without touching the HTTP layer:
 
-1. **retrieve** — expands the user message into up to 5 queries, runs `vector_search` per query (top-k, score threshold), pools the hits. When `RERANKER` is enabled the pooled chunks are re-scored via Cohere/Voyage and the context is rebuilt from the top `RERANK_TOP_N` above `RERANK_THRESHOLD`. Unavailable/denied tool or zero hits → `null` context.
-2. **generate** — system prompt + retrieved context (trimmed to `RAG_TOKEN_BUDGET`), followed by the request history (client system messages are dropped). Streams tokens via `streamEvents`.
-3. **refuse** — conditional branch when the context is `null`; returns a fixed refusal instead of hallucinating.
+1. **retrieve** — optionally condenses a follow-up question into a standalone query using the conversation history (`RAG_QUERY_REWRITE`, one cheap LLM call), expands the message into up to 5 queries, runs `vector_search` per query **concurrently** (top-k, score threshold), pools the hits. When `RERANKER` is enabled the pooled chunks are re-scored via Cohere/Voyage and the context is rebuilt from the top `RERANK_TOP_N` above `RERANK_THRESHOLD`. Unavailable/denied tool or zero hits → `null` context.
+2. **generate** — system prompt + retrieved context (trimmed to `RAG_TOKEN_BUDGET` at chunk boundaries), followed by the request history (client system messages are dropped, history capped at `RAG_HISTORY_TOKEN_BUDGET` keeping the most recent turns). Streams tokens via `streamEvents`; only tokens from the generate node reach the client. Client disconnects abort the in-flight LLM call via `AbortSignal`.
+3. **refuse** — conditional branch when the context is `null`; returns a fixed refusal (German or English, matched to the user's language) instead of hallucinating.
 
 ### Adding another agent on the base
 
@@ -62,7 +62,7 @@ The pipeline is a LangGraph `StateGraph`, so each stage is swappable without tou
 |---|---|
 | `GET /health` | Liveness probe, bypasses auth |
 | `GET /v1/models` | Lists registered agents as models |
-| `POST /v1/chat/completions` | Chat completion; `stream: true` for SSE. `model` selects the agent (default: first registered). `temperature`/`max_tokens` are forwarded to the LLM. Responses include `usage`. The `x-session-id` header is echoed (or generated) for trace correlation. |
+| `POST /v1/chat/completions` | Chat completion; `stream: true` for SSE. `model` selects the agent (default: first registered). `temperature` (0–2, clamped per provider) and `max_tokens` are forwarded to the LLM. Responses include `usage`; with `stream_options.include_usage: true` a terminal usage chunk is sent after the stop chunk (OpenAI contract). The `x-session-id` header is echoed (or generated) for trace correlation. |
 
 ## Configuration
 
@@ -84,8 +84,11 @@ All variables are validated at boot; invalid values crash the service immediatel
 | `CHUNKS_TABLE` | `chunks` | Chunk table (env fallback when no profile) |
 | `RAG_PROFILE` | – | Profile name in the importer's `rag_profiles` registry; when set, table + embedding provider/model come from that row (env is the fallback) |
 | `RAG_DEFAULT_RETRIEVAL_LIMIT` | `5` | Top-k per retrieval query |
-| `RAG_SCORE_THRESHOLD` | `0.7` | Cosine similarity cutoff |
-| `RAG_TOKEN_BUDGET` | `3200` | Context budget (~4 chars/token) |
+| `RAG_SCORE_THRESHOLD` | `0.7` | Cosine similarity cutoff (embedding-model dependent — recalibrate when switching models) |
+| `RAG_TOKEN_BUDGET` | `3200` | Context budget (~4 chars/token), trimmed at chunk boundaries |
+| `RAG_HISTORY_TOKEN_BUDGET` | `4000` | Conversation-history budget; oldest turns are dropped first |
+| `RAG_QUERY_REWRITE` | `false` | Condense follow-up questions into standalone retrieval queries via the fallback LLM |
+| `EMBEDDING_TIMEOUT_MS` | `15000` | Timeout for embedding API calls |
 | `RERANKER` | `none` | `none`, `cohere` or `voyage` (mirrors the eval harness) |
 | `RERANK_API_KEY` | – | Required when `RERANKER` != none |
 | `RERANK_MODEL` | `rerank-v3.5` (cohere) / `rerank-2.5` (voyage) | Rerank model |

@@ -1,4 +1,5 @@
 import type { FastifyRequest, preHandlerAsyncHookHandler } from "fastify";
+import type { AuthenticatedRequest } from "./auth.js";
 
 interface Bucket {
   tokens: number;
@@ -82,11 +83,15 @@ export class TokenBucketRateLimiter {
 }
 
 /**
- * Rate-limit key = Fastify's request.ip. With trustProxy disabled this is the
- * raw socket address, so a spoofed X-Forwarded-For cannot shift buckets; with a
- * trusted proxy allow-list Fastify derives the real client IP from XFF itself.
+ * Rate-limit key: prefer the verified JWT subject — behind Open-WebUI all
+ * users share one upstream IP, so IP buckets would let one user starve
+ * everyone. Falls back to request.ip; with trustProxy disabled this is the
+ * raw socket address, so a spoofed X-Forwarded-For cannot shift buckets; with
+ * a trusted proxy allow-list Fastify derives the real client IP from XFF.
  */
 export function identifyClient(request: FastifyRequest): string {
+  const sub = (request as AuthenticatedRequest).user?.sub;
+  if (typeof sub === "string" && sub) return `sub:${sub}`;
   return request.ip || request.socket?.remoteAddress || "unknown";
 }
 

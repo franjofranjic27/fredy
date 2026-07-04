@@ -9,78 +9,129 @@ import {
 } from "@opentelemetry/api";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
-import { ToolRegistry, type AgentRun } from "@fredy/agent-core";
+import { ToolRegistry, type AgentRun, type AgentStreamEvent } from "@fredy/agent-core";
 import { loadConfig } from "../../config.js";
 import { FakeChatModel } from "../../testing/fake-chat-model.js";
 import { createTestLogger } from "../../testing/test-logger.js";
 import type { VectorSearchHit } from "../../tools/pgvector.js";
 import { createRagAgent, mapRagStreamEvents, type RagStreamEvent } from "./rag-agent.js";
-import { RAG_FALLBACK_RESPONSE } from "./system-prompt.js";
+import { RAG_FALLBACK_RESPONSE, RAG_FALLBACK_RESPONSE_DE } from "./system-prompt.js";
 
-async function collect(events: RagStreamEvent[]): Promise<string[]> {
+const inGenerate = { langgraph_node: "generate" } as const;
+
+async function collect(events: RagStreamEvent[]): Promise<AgentStreamEvent[]> {
   const stream = mapRagStreamEvents(
     (async function* () {
       for (const event of events) yield event;
     })(),
   );
-  const out: string[] = [];
-  for await (const delta of stream) out.push(delta);
+  const out: AgentStreamEvent[] = [];
+  for await (const event of stream) out.push(event);
   return out;
 }
 
-async function drain(run: AgentRun, userMessage: string): Promise<string[]> {
-  const out: string[] = [];
-  for await (const delta of run.stream({
+function textOf(events: AgentStreamEvent[]): string[] {
+  return events.filter((event) => event.type === "delta").map((event) => event.text);
+}
+
+async function drain(run: AgentRun, userMessage: string): Promise<AgentStreamEvent[]> {
+  const out: AgentStreamEvent[] = [];
+  for await (const event of run.stream({
     sessionId: "s1",
     messages: [{ role: "user", content: userMessage }],
     userMessage,
   })) {
-    out.push(delta);
+    out.push(event);
   }
   return out;
 }
 
 describe("mapRagStreamEvents (streamEvents → SSE mapping)", () => {
   it("forwards streamed model tokens and suppresses the duplicate generate emission", async () => {
-    const deltas = await collect([
-      { event: "on_chat_model_stream", data: { chunk: { content: "VPN-" } } },
-      { event: "on_chat_model_stream", data: { chunk: { content: "Setup" } } },
+    const events = await collect([
+      { event: "on_chat_model_stream", metadata: inGenerate, data: { chunk: { content: "VPN-" } } },
+      {
+        event: "on_chat_model_stream",
+        metadata: inGenerate,
+        data: { chunk: { content: "Setup" } },
+      },
       // Would double-emit the whole answer without the guard:
       { event: "on_chain_end", name: "generate", data: { output: { answer: "VPN-Setup" } } },
     ]);
-    expect(deltas).toEqual(["VPN-", "Setup"]);
-    expect(deltas.join("")).toBe("VPN-Setup");
+    expect(textOf(events)).toEqual(["VPN-", "Setup"]);
+    expect(events.at(-1)).toEqual({ type: "done", usage: undefined, model: undefined });
+  });
+
+  it("drops model tokens from nodes other than generate (e.g. query rewrite)", async () => {
+    const events = await collect([
+      {
+        event: "on_chat_model_stream",
+        metadata: { langgraph_node: "retrieve" },
+        data: { chunk: { content: "rewritten query" } },
+      },
+      { event: "on_chat_model_stream", metadata: inGenerate, data: { chunk: { content: "ok" } } },
+    ]);
+    expect(textOf(events)).toEqual(["ok"]);
   });
 
   it("emits the whole answer once for providers that do not stream tokens", async () => {
-    const deltas = await collect([
+    const events = await collect([
       { event: "on_chain_end", name: "generate", data: { output: { answer: "whole answer" } } },
     ]);
-    expect(deltas).toEqual(["whole answer"]);
+    expect(textOf(events)).toEqual(["whole answer"]);
   });
 
-  it("dispatches the refuse node as the verbatim fallback response", async () => {
-    const deltas = await collect([{ event: "on_chain_end", name: "refuse", data: { output: {} } }]);
-    expect(deltas).toEqual([RAG_FALLBACK_RESPONSE]);
+  it("dispatches the refuse node answer as a delta", async () => {
+    const events = await collect([
+      {
+        event: "on_chain_end",
+        name: "refuse",
+        data: { output: { answer: RAG_FALLBACK_RESPONSE } },
+      },
+    ]);
+    expect(textOf(events)).toEqual([RAG_FALLBACK_RESPONSE]);
+  });
+
+  it("terminates with a done event carrying usage and model from generate", async () => {
+    const events = await collect([
+      { event: "on_chat_model_stream", metadata: inGenerate, data: { chunk: { content: "hi" } } },
+      {
+        event: "on_chain_end",
+        name: "generate",
+        data: {
+          output: {
+            answer: "hi",
+            usage: { inputTokens: 10, outputTokens: 2 },
+            responseModel: "claude-x",
+          },
+        },
+      },
+    ]);
+    expect(events.at(-1)).toEqual({
+      type: "done",
+      usage: { inputTokens: 10, outputTokens: 2 },
+      model: "claude-x",
+    });
   });
 
   it("ignores empty token chunks and unrelated events", async () => {
-    const deltas = await collect([
-      { event: "on_chat_model_stream", data: { chunk: { content: "" } } },
+    const events = await collect([
+      { event: "on_chat_model_stream", metadata: inGenerate, data: { chunk: { content: "" } } },
       { event: "on_chain_start", name: "generate" },
       { event: "on_chain_end", name: "retrieve", data: { output: {} } },
     ]);
-    expect(deltas).toEqual([]);
+    expect(textOf(events)).toEqual([]);
   });
 
   it("flattens content-block token chunks to text", async () => {
-    const deltas = await collect([
+    const events = await collect([
       {
         event: "on_chat_model_stream",
+        metadata: inGenerate,
         data: { chunk: { content: [{ type: "text", text: "x" }] } },
       },
     ]);
-    expect(deltas).toEqual(["x"]);
+    expect(textOf(events)).toEqual(["x"]);
   });
 });
 
@@ -173,17 +224,28 @@ describe("rag agent stream()", () => {
   it("streams model tokens grounded in retrieval without re-emitting the answer", async () => {
     const model = new FakeChatModel({ response: "VPN-Setup", chunks: ["VPN-", "Setup"] });
     const run = buildRun(model, registryWithVectorSearch("VPN docs", [hit]));
-    const deltas = await drain(run, "How do I set up VPN?");
+    const events = await drain(run, "How do I set up VPN?");
+    const deltas = events.filter((event) => event.type === "delta").map((event) => event.text);
     expect(deltas.join("")).toBe("VPN-Setup");
     // No duplicate whole-answer delta appended after the streamed tokens.
     expect(deltas.filter((delta) => delta === "VPN-Setup")).toHaveLength(0);
+    expect(events.at(-1)?.type).toBe("done");
   });
 
   it("streams the verbatim refusal when retrieval yields nothing", async () => {
     const model = new FakeChatModel({ response: "unused" });
     const run = buildRun(model, new ToolRegistry());
-    const deltas = await drain(run, "unknown topic");
+    const events = await drain(run, "unknown topic");
+    const deltas = events.filter((event) => event.type === "delta").map((event) => event.text);
     expect(deltas).toEqual([RAG_FALLBACK_RESPONSE]);
+  });
+
+  it("streams a German refusal for a German question", async () => {
+    const model = new FakeChatModel({ response: "unused" });
+    const run = buildRun(model, new ToolRegistry());
+    const events = await drain(run, "Wie richte ich das VPN ein?");
+    const deltas = events.filter((event) => event.type === "delta").map((event) => event.text);
+    expect(deltas).toEqual([RAG_FALLBACK_RESPONSE_DE]);
   });
 
   it("ends the agent.run span with error status when generation fails", async () => {

@@ -10,8 +10,10 @@ export const ChatCompletionRequestSchema = z.object({
   model: z.string().optional(),
   messages: z.array(ChatCompletionMessageSchema).min(1),
   stream: z.boolean().optional().default(false),
-  temperature: z.number().optional(),
-  max_tokens: z.number().optional(),
+  stream_options: z.object({ include_usage: z.boolean().optional() }).optional(),
+  // OpenAI range; providers with a narrower range (Anthropic 0–1) clamp downstream.
+  temperature: z.number().min(0).max(2).optional(),
+  max_tokens: z.number().int().positive().optional(),
   top_p: z.number().optional(),
 });
 
@@ -50,6 +52,11 @@ export interface ChatCompletionChunk {
     delta: ChatCompletionChunkDelta;
     finish_reason: "stop" | null;
   }>;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
 }
 
 export function createCompletionResponse(
@@ -98,5 +105,28 @@ export function createCompletionChunk(
         finish_reason: finishReason,
       },
     ],
+  };
+}
+
+/**
+ * Terminal usage chunk per OpenAI's `stream_options.include_usage` contract:
+ * sent after the finish_reason chunk with an empty choices array.
+ */
+export function createUsageChunk(
+  id: string,
+  model: string,
+  usage: AgentUsage,
+): Omit<ChatCompletionChunk, "choices"> & { choices: [] } {
+  return {
+    id,
+    object: "chat.completion.chunk",
+    created: Math.floor(Date.now() / 1000),
+    model,
+    choices: [],
+    usage: {
+      prompt_tokens: usage.inputTokens,
+      completion_tokens: usage.outputTokens,
+      total_tokens: usage.inputTokens + usage.outputTokens,
+    },
   };
 }

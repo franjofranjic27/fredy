@@ -77,72 +77,96 @@ function isToolAvailable(deps: RetrievalDeps, allowed?: readonly string[]): bool
   return allowed.includes(VECTOR_SEARCH_TOOL_NAME);
 }
 
+interface QueryResult {
+  block: string | null;
+  hits: VectorSearchHit[];
+}
+
+/**
+ * All expansion queries run concurrently: each one costs an embedding API
+ * round-trip plus a DB query, so sequential execution would add up to 5x the
+ * latency for no benefit — the queries are independent.
+ */
 async function fetchContext(
   queries: string[],
   requestId: string,
   spaceKey: string | undefined,
   deps: RetrievalDeps,
 ): Promise<FetchOutcome> {
-  const tool = deps.toolRegistry.get(VECTOR_SEARCH_TOOL_NAME);
+  const results = await Promise.all(
+    queries.map((query, index) => runSingleQuery(query, index, requestId, spaceKey, deps)),
+  );
+
   const blocks: string[] = [];
   const pooledHits = new Map<string, VectorSearchHit>();
-
-  for (const query of queries) {
-    const span = tracer.startSpan("rag-agent.retrieval", {
-      attributes: { "request.id": requestId, [GEN_AI.RETRIEVAL_QUERY]: query },
-    });
-    const startedAt = Date.now();
-    try {
-      const message = (await tool!.invoke({
-        type: "tool_call",
-        id: `retrieval-${requestId}-${blocks.length}`,
-        name: VECTOR_SEARCH_TOOL_NAME,
-        args: { query, limit: deps.defaultLimit, spaceKey },
-      })) as ToolMessage;
-      const content = typeof message.content === "string" ? message.content : "";
-      const hits = (message.artifact as { hits?: VectorSearchHit[] } | undefined)?.hits ?? [];
-      span.setAttribute(GEN_AI.RETRIEVAL_RESULT_COUNT, hits.length);
-      emitLogEvent(deps.logger, {
-        type: "retrieval",
-        agent: "rag-agent",
-        requestId,
-        query,
-        resultCount: hits.length,
-        chunks: hits.map((hit) => ({
-          id: String(hit.id),
-          score: hit.score,
-          url: hit.payload.url,
-          title: hit.payload.title,
-        })),
-        durationMs: Date.now() - startedAt,
-      });
-      if (hits.length > 0 && content.trim().length > 0) {
-        blocks.push(`Query: ${query}\n${content.trim()}`);
-        for (const hit of hits) {
-          if (!pooledHits.has(String(hit.id))) pooledHits.set(String(hit.id), hit);
-        }
-      }
-      span.setStatus({ code: SpanStatusCode.OK });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      span.setAttribute(GEN_AI.RETRIEVAL_RESULT_COUNT, 0);
-      span.recordException(error instanceof Error ? error : new Error(errorMessage));
-      span.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage });
-      emitLogEvent(deps.logger, {
-        type: "retrieval",
-        agent: "rag-agent",
-        requestId,
-        query,
-        resultCount: 0,
-        durationMs: Date.now() - startedAt,
-        error: { code: "tool_error", message: errorMessage },
-      });
-    } finally {
-      span.end();
+  for (const result of results) {
+    if (result.block) blocks.push(result.block);
+    for (const hit of result.hits) {
+      if (!pooledHits.has(String(hit.id))) pooledHits.set(String(hit.id), hit);
     }
   }
-
   return { merged: blocks.join(BLOCK_SEPARATOR), hits: [...pooledHits.values()] };
+}
+
+async function runSingleQuery(
+  query: string,
+  index: number,
+  requestId: string,
+  spaceKey: string | undefined,
+  deps: RetrievalDeps,
+): Promise<QueryResult> {
+  const tool = deps.toolRegistry.get(VECTOR_SEARCH_TOOL_NAME);
+  const span = tracer.startSpan("rag-agent.retrieval", {
+    attributes: { "request.id": requestId, [GEN_AI.RETRIEVAL_QUERY]: query },
+  });
+  const startedAt = Date.now();
+  try {
+    const message = (await tool!.invoke({
+      type: "tool_call",
+      id: `retrieval-${requestId}-${index}`,
+      name: VECTOR_SEARCH_TOOL_NAME,
+      args: { query, limit: deps.defaultLimit, spaceKey },
+    })) as ToolMessage;
+    const content = typeof message.content === "string" ? message.content : "";
+    const hits = (message.artifact as { hits?: VectorSearchHit[] } | undefined)?.hits ?? [];
+    span.setAttribute(GEN_AI.RETRIEVAL_RESULT_COUNT, hits.length);
+    emitLogEvent(deps.logger, {
+      type: "retrieval",
+      agent: "rag-agent",
+      requestId,
+      query,
+      resultCount: hits.length,
+      chunks: hits.map((hit) => ({
+        id: String(hit.id),
+        score: hit.score,
+        url: hit.payload.url,
+        title: hit.payload.title,
+      })),
+      durationMs: Date.now() - startedAt,
+    });
+    span.setStatus({ code: SpanStatusCode.OK });
+    if (hits.length > 0 && content.trim().length > 0) {
+      return { block: `Query: ${query}\n${content.trim()}`, hits };
+    }
+    return { block: null, hits: [] };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    span.setAttribute(GEN_AI.RETRIEVAL_RESULT_COUNT, 0);
+    span.recordException(error instanceof Error ? error : new Error(errorMessage));
+    span.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage });
+    emitLogEvent(deps.logger, {
+      type: "retrieval",
+      agent: "rag-agent",
+      requestId,
+      query,
+      resultCount: 0,
+      durationMs: Date.now() - startedAt,
+      error: { code: "tool_error", message: errorMessage },
+    });
+    return { block: null, hits: [] };
+  } finally {
+    span.end();
+  }
 }
 
 async function rerankContext(
