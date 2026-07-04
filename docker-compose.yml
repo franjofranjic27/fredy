@@ -176,6 +176,9 @@ services:
       JIRA_TRANSITION_WAITING: "${JIRA_TRANSITION_WAITING:-Waiting for customer}"
       TICKET_CACHE_TABLE: "${TICKET_CACHE_TABLE:-jira_ticket_cache}"
       JIRA_AGENT_PORT: "8002"
+      # env_file passes SERVICE_NAME=fredy-agent to every container; pin the
+      # correct logical name for log correlation.
+      SERVICE_NAME: "fredy-jira-agent"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
