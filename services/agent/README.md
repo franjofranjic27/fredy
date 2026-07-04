@@ -1,339 +1,116 @@
 # Fredy Agent Service
 
-NestJS service that exposes a deterministic RAG agent over an OpenAI-compatible HTTP API and over the Model Context Protocol (stdio). The agent grounds every answer in Confluence content retrieved from PostgreSQL via pgvector — there is no open-ended ReAct loop.
+Slim TypeScript service (Fastify + LangGraph.js) exposing a deterministic RAG agent over an OpenAI-compatible HTTP API. The agent grounds every answer in Confluence content retrieved from PostgreSQL via pgvector — there is no open-ended ReAct loop. Answers without retrieval context are refused.
+
+The service is built on the shared **`@fredy/agent-core`** package (`packages/agent-core`), which every future agent reuses.
 
 ## Architecture
 
 ```
-src/
-├── main.ts                     NestExpressApplication bootstrap (HTTP)
-├── cli.ts                      Single-shot RAG run from the terminal
-├── app.module.ts               Root module
-├── tracing-init.ts             Loaded first; starts the OpenTelemetry NodeSDK
-│
-├── agents/
-│   └── rag-agent/              Deterministic flow: rewrite → retrieve → assemble → LLM
-│       ├── rag-agent.service.ts        Orchestrator
-│       ├── retrieval.service.ts        Always calls vector_search
-│       ├── query-rewrite.service.ts    Heuristic expansion (≤5 queries)
-│       ├── prompt-assembler.service.ts Token-budget enforcement
-│       ├── response-recorder.service.ts Persists session + emits AgentLogEvent
-│       └── prompts/                    System prompt + builder
-│
-├── entry-points/
-│   ├── web/                    /health, /v1/models, /v1/chat/completions (SSE)
-│   └── mcp/                    MCP stdio server exposing the tool registry
-│
-├── auth/
-│   ├── services/jwt.service.ts          JWKS verification (jose, lazy-loaded)
-│   ├── services/rbac.service.ts         ROLE_TOOL_CONFIG parsing
-│   ├── guards/keycloak-auth.guard.ts    Bearer-token / API-key check
-│   └── guards/rbac.guard.ts             Computes request.allowedToolNames
-│
-├── middleware/
-│   └── rate-limit.interceptor.ts        Token-bucket per client IP
-│
-├── shared/
-│   ├── llm/                    LlmRegistry + Anthropic, OpenAI, Gemini clients
-│   ├── embedding/              EmbeddingClient (OpenAI, Voyage)
-│   ├── memory/session/         SessionService (in-memory store)
-│   ├── observability/          OTel bootstrap, gen_ai.* semconv, AgentLogEvent
-│   ├── tools/                  ToolRegistryService (self-registration via OnModuleInit)
-│   ├── prompts/                BasePromptBuilder + tool-formatter
-│   └── openai/                 OpenAI request/response zod schema + builders
-│
-├── tools/
-│   ├── vector-search/          pgvector-backed vector_search tool
-│   ├── knowledge-base-stats/   get_knowledge_base_stats tool
-│   └── fetch-url/              fetch_url tool
-│
-├── config/configuration.ts     Single nested ConfigFactory
-└── e2e/                        supertest smoke against the HTTP stack
+packages/agent-core/            Framework-agnostic base for all agents
+├── logging/                    pino logger factory (JSON in prod, pretty in dev)
+├── otel/                       Tracing bootstrap, gen_ai.* semconv,
+│                               LangChain→OTel callback handler
+├── llm/                        resolveChatModel: model id → LangChain ChatModel
+│                               (claude-* → Anthropic, gpt-*/o1/o3/o4* → OpenAI,
+│                                gemini-* → Google GenAI, else fallback model)
+├── tools/                      ToolRegistry + RBAC allowlist filtering
+├── agents/                     AgentDefinition / AgentRun / AgentRegistry
+└── config/                     defineConfig: zod-based fail-fast env validation
+
+services/agent/src/
+├── main.ts                     Bootstrap: OTel first, config, pool, tools, agents
+├── server.ts                   Fastify app factory (used by e2e tests too)
+├── config.ts                   Full env schema (fail-fast at boot)
+├── profile.ts                  RAG_PROFILE resolution from the rag_profiles table
+├── plugins/
+│   ├── auth.ts                 API key or Keycloak JWT (jose + remote JWKS)
+│   ├── rbac.ts                 Role resolution → request.allowedToolNames
+│   └── rate-limit.ts           Token bucket per client IP (with eviction)
+├── routes/
+│   ├── health.ts               GET /health
+│   ├── models.ts               GET /v1/models (one entry per registered agent)
+│   └── chat-completions.ts     POST /v1/chat/completions (JSON + SSE)
+├── agents/rag-agent/
+│   ├── rag-agent.ts            AgentDefinition wiring the graph + OTel spans
+│   ├── graph.ts                LangGraph: retrieve → (generate | refuse)
+│   ├── retrieval.ts            Query expansion, vector_search, optional rerank
+│   ├── query-split.ts          Heuristic expansion (≤5 queries)
+│   └── system-prompt.ts        Grounding prompt + verbatim refusal text
+├── tools/                      LangChain tools: vector_search,
+│                               get_knowledge_base_stats, fetch_url (SSRF-hardened),
+│                               embeddings client, pgvector store
+└── rerank/                     Cohere /v2/rerank and Voyage /v1/rerank clients
 ```
 
-### Request flow (`POST /v1/chat/completions`)
+### The RAG graph
 
-```
-client → KeycloakAuthGuard → RbacGuard → RateLimitInterceptor → WebController
-                                                                    │
-                                                                    ▼
-                                                              WebService
-                                                                    │
-                                                                    ▼
-                                                          RagAgentService
-                                                                    │
-                                  ┌───────────────┬─────────────────┴─────────┐
-                                  ▼               ▼                           ▼
-                          QueryRewrite    RetrievalService              SessionService
-                                            (vector_search)                   │
-                                                  │                           │
-                                                  ▼                           │
-                                            PgVectorService                   │
-                                                                              ▼
-                                          PromptAssemblerService ← chat history
-                                                  │
-                                                  ▼
-                                            LlmRegistryService
-                                                  │
-                          ┌───────────────┬───────┴───────┬───────────────┐
-                          ▼               ▼               ▼               ▼
-                      Anthropic        OpenAI          Gemini        (fallback)
-                                                                              │
-                                                                              ▼
-                                                                ResponseRecorderService
-                                                                  (session + AgentLogEvent)
-```
+The pipeline is a LangGraph `StateGraph`, so each stage is swappable without touching the HTTP layer:
 
-If `vector_search` is unavailable (tool not registered, or denied by RBAC), the agent returns a fixed fallback message instead of calling the LLM.
+1. **retrieve** — expands the user message into up to 5 queries, runs `vector_search` per query (top-k, score threshold), pools the hits. When `RERANKER` is enabled the pooled chunks are re-scored via Cohere/Voyage and the context is rebuilt from the top `RERANK_TOP_N` above `RERANK_THRESHOLD`. Unavailable/denied tool or zero hits → `null` context.
+2. **generate** — system prompt + retrieved context (trimmed to `RAG_TOKEN_BUDGET`), followed by the request history (client system messages are dropped). Streams tokens via `streamEvents`.
+3. **refuse** — conditional branch when the context is `null`; returns a fixed refusal instead of hallucinating.
 
----
+### Adding another agent on the base
 
-## Endpoints
+1. Implement `AgentDefinition<TDeps>` from `@fredy/agent-core` (`id`, `ownedBy`, `createRun(deps)`), returning an `AgentRun` with `invoke()` and `stream()`.
+2. Register it in `main.ts`: `agentRegistry.register(createMyAgent(), deps)`.
+3. Done — it appears in `GET /v1/models` and is addressable via the `model` field of `POST /v1/chat/completions`. Logging, RBAC, rate limiting and OTel come from the shared base.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Liveness — `{"status":"ok"}` |
-| `GET` | `/v1/models` | Lists exactly one entry per registered agent (today: `rag-agent`) |
-| `POST` | `/v1/chat/completions` | OpenAI-shaped chat endpoint; supports `stream: true` over SSE |
+## HTTP API (OpenAI-compatible)
 
-The chat endpoint accepts an optional `x-session-id` header to resume a conversation. If omitted, a new session id is generated and returned in the response header.
+| Route | Description |
+|---|---|
+| `GET /health` | Liveness probe, bypasses auth |
+| `GET /v1/models` | Lists registered agents as models |
+| `POST /v1/chat/completions` | Chat completion; `stream: true` for SSE. `model` selects the agent (default: first registered). `temperature`/`max_tokens` are forwarded to the LLM. Responses include `usage`. The `x-session-id` header is echoed (or generated) for trace correlation. |
 
-When `stream: true`, the response is `text/event-stream` with `data: <chunk>\n\n` frames terminated by `data: [DONE]\n\n` for OpenAI / OpenWebUI compatibility.
+## Configuration
 
----
-
-## Entrypoints
-
-### HTTP (production)
-
-```bash
-pnpm build         # nest build (SWC) → dist/
-pnpm start         # node dist/main.js (reads ../../.env)
-pnpm start:dev     # nest start --watch
-```
-
-### CLI (one-shot)
-
-```bash
-pnpm build && pnpm start:cli "How do I configure the VPN?"
-```
-
-Loads the same DI container as the HTTP server (sans HTTP listener) and runs a single `RagAgentService.processMessage`.
-
-### MCP stdio
-
-```bash
-pnpm build && pnpm mcp-server
-```
-
-Boots a minimal Nest context exposing the ToolRegistryService over the Model Context Protocol. Any MCP client (Claude Desktop, custom clients) can list and invoke `vector_search`, `get_knowledge_base_stats` and `fetch_url`.
-
-Quick smoke:
-
-```bash
-(
-  echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'
-  sleep 1
-  echo '{"jsonrpc":"2.0","method":"notifications/initialized"}'
-  echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
-) | node dist/entry-points/mcp/mcp.bootstrap.js
-```
-
----
-
-## Tools
-
-| Tool | Description |
-|------|-------------|
-| `vector_search` | Semantic search over the pgvector `chunks` table; returns the top chunks plus their source URLs |
-| `get_knowledge_base_stats` | Returns the indexed chunk count for the `chunks` table |
-| `fetch_url` | Fetches the body of any HTTP(S) URL (max ~4000 chars) |
-
-Tools self-register at startup via `OnModuleInit`. New tools are added by writing a `@Injectable()` class implementing `Tool`, then importing its module from `AppModule` (or `McpAppModule`).
-
----
-
-## Authentication
-
-### Dev mode (no Keycloak)
-
-When `KEYCLOAK_JWKS_URL` is unset:
-
-- If `AGENT_API_KEY` is set, requests must carry `Authorization: Bearer <key>`.
-- Otherwise all requests are accepted (local development only).
-
-### Keycloak mode
-
-When `KEYCLOAK_JWKS_URL` is set, every request must carry a valid JWT verified against the JWKS endpoint. The `realm_access.roles` claim is read for RBAC.
-
----
-
-## Role-based tool access
-
-`ROLE_TOOL_CONFIG` is a JSON object mapping role names to allowed tool name arrays:
-
-```env
-ROLE_TOOL_CONFIG={"admin":["vector_search","fetch_url","get_knowledge_base_stats"],"user":["vector_search","get_knowledge_base_stats"]}
-```
-
-Role resolution priority:
-
-1. `X-Role` request header (honoured even in Keycloak mode for dev/test)
-2. JWT `realm_access.roles[0]` claim (Keycloak mode only)
-3. Literal `"default"`
-
-If a role is not present in the config and no `"default"` entry exists, the role is denied all tools — the agent then falls back to "I don't know" because `vector_search` is unavailable.
-
----
-
-## Session management
-
-Conversations are keyed by `x-session-id`. The store is in-process (per-replica); state is not shared across replicas. Sessions are evicted after `SESSION_TTL_MS` (default 30 min) of inactivity.
-
----
-
-## Rate limiting
-
-`POST /v1/chat/completions` is protected by a per-IP token-bucket interceptor.
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `RATE_LIMIT_RPM` | `60` | Steady-state requests per minute |
-| `RATE_LIMIT_BURST` | `10` | Bucket capacity (burst on top of the rate) |
-
-Over-limit requests return HTTP 429 with a `Retry-After` header (seconds).
-
----
-
-## Observability
-
-The service emits **two parallel telemetry streams**:
-
-### 1. OpenTelemetry traces
-
-`tracing-init.ts` starts a `NodeSDK` with `OTLPTraceExporter` before Nest loads, so HTTP / Express / undici are auto-instrumented. The agent adds three nested spans per request, all using the OTel GenAI semantic conventions:
-
-- `agent.run` — `agent.name`, `agent.session_id`
-- `gen_ai.chat` (one per LLM call) — `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.response.finish_reasons`
-- `gen_ai.tool.execute` (one per tool call) — `gen_ai.tool.name`, `tool.success`; for `vector_search` also `db.system=postgresql`, `db.collection.name` (the `chunks` table), `gen_ai.retrieval.result_count`
-
-Set `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318` to forward to the Jaeger all-in-one container shipped in `docker-compose.yml`. UI: http://localhost:16686.
-
-### 2. Structured AgentLogEvent JSON lines
-
-`ResponseRecorderService` emits a JSON line for every request, with `type: "request" | "retrieval" | "llm-call" | "tool-call"`. These are written through Winston so they end up on stdout (Docker → log driver of choice).
-
-### Audit content (opt-in)
-
-Span attributes contain durations, token counts and model identifiers but **not the actual prompts or completions**. To capture user / assistant messages and tool inputs / outputs as span events (for offline audit), set:
-
-```env
-OTEL_GENAI_CAPTURE_CONTENT=true
-```
-
-This emits `gen_ai.user.message`, `gen_ai.assistant.message`, `tool.input` and `tool.output` events on the relevant spans. Treat the OTel backend as PII-sensitive when this flag is on.
-
----
-
-## Environment variables
-
-### Process
+All variables are validated at boot; invalid values crash the service immediately.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PORT` | `8001` | HTTP listen port |
-| `LOG_LEVEL` | `info` | Winston log level (`error` / `warn` / `info` / `debug`) |
-| `SERVICE_NAME` | `fredy-agent` | OTel resource `service.name` |
-| `PROJECT_ENV` | `development` | OTel resource `deployment.environment.name` |
-
-### LLM providers (at least one key required at runtime)
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `LLM_FALLBACK_MODEL` | `claude-sonnet-4-5-20250929` | Model picked when the client omits one |
-| `ANTHROPIC_API_KEY` | — | Enables the Anthropic client |
-| `ANTHROPIC_MAX_TOKENS` | `4096` | Max output tokens |
-| `OPENAI_API_KEY` | — | Enables the OpenAI client |
-| `OPENAI_BASE_URL` | — | Optional custom base URL (Azure OpenAI etc.) |
-| `OPENAI_MAX_TOKENS` | `4096` | Max output tokens |
-| `GEMINI_API_KEY` | — | Enables the Gemini client |
-| `GEMINI_MAX_TOKENS` | `4096` | Max output tokens |
-
-### Embedding (used by `vector_search`)
-
-| Variable | Default | Purpose |
-|---|---|---|
+| `PORT` | `8001` | HTTP port |
+| `LOG_LEVEL` | `info` | pino log level |
+| `LLM_FALLBACK_MODEL` | `claude-sonnet-4-5-20250929` | Model used by the RAG agent (and fallback for unknown ids) |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | – | Provider credentials |
+| `ANTHROPIC_MAX_TOKENS` / `OPENAI_MAX_TOKENS` / `GEMINI_MAX_TOKENS` | `4096` | Max output tokens per provider |
+| `OPENAI_BASE_URL` | – | Custom OpenAI-compatible endpoint |
 | `EMBEDDING_PROVIDER` | `openai` | `openai` or `voyage` |
-| `EMBEDDING_OPENAI_API_KEY` *(fallback: `EMBEDDING_API_KEY`)* | — | Required if provider is `openai` |
-| `EMBEDDING_OPENAI_MODEL` *(fallback: `EMBEDDING_MODEL`)* | `text-embedding-3-small` | OpenAI embedding model |
-| `EMBEDDING_VOYAGE_API_KEY` | — | Required if provider is `voyage` |
-| `EMBEDDING_VOYAGE_MODEL` | `voyage-3-lite` | Voyage embedding model |
-
-### Vector store (PostgreSQL + pgvector)
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `DATABASE_URL` | `postgresql://fredy:...@postgres:5432/fredy` | Connection string to the shared `fredy` database (use `localhost:5432` outside Docker) |
-| `CHUNKS_TABLE` | `chunks` | Table holding the embedded Confluence chunks |
-
-### Retrieval / prompt budget
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `RAG_DEFAULT_RETRIEVAL_LIMIT` | `5` | Max chunks per query |
-| `RAG_SCORE_THRESHOLD` | `0.7` | Min cosine similarity for a chunk to qualify |
-| `RAG_TOKEN_BUDGET` | `3200` | Hard cap on context tokens passed to the LLM |
-
-### Session
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `SESSION_TTL_MS` | `1800000` | Session inactivity TTL (30 min) |
-
-### Auth
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `AGENT_API_KEY` | — | Static bearer accepted in dev mode |
-| `KEYCLOAK_JWKS_URL` | — | When set, switches to JWT verification |
-| `KEYCLOAK_ISSUER` | — | Expected `iss` claim |
-| `KEYCLOAK_AUDIENCE` | `fredy-agent` | Expected `aud` claim |
-| `ROLE_TOOL_CONFIG` | — | JSON role → tool allowlist (see above) |
-
-### Rate limit
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `RATE_LIMIT_RPM` | `60` | Steady-state limit |
-| `RATE_LIMIT_BURST` | `10` | Bucket capacity |
-
-### Observability
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | OTLP-HTTP collector URL (no trailing `/v1/traces`) |
-| `OTEL_GENAI_CAPTURE_CONTENT` | `false` | Set to `true` to emit prompt / completion content as span events |
-
----
+| `EMBEDDING_API_KEY` / `EMBEDDING_MODEL` | – | Shared fallbacks for both providers |
+| `EMBEDDING_OPENAI_API_KEY` / `EMBEDDING_OPENAI_MODEL` / `EMBEDDING_OPENAI_ENDPOINT` | model `text-embedding-3-small` | OpenAI embeddings |
+| `EMBEDDING_VOYAGE_API_KEY` / `EMBEDDING_VOYAGE_MODEL` / `EMBEDDING_VOYAGE_ENDPOINT` | model `voyage-3-lite` | Voyage embeddings (`input_type: query`) |
+| `DATABASE_URL` | `postgresql://fredy:fredy@localhost:5432/fredy` | PostgreSQL/pgvector |
+| `CHUNKS_TABLE` | `chunks` | Chunk table (env fallback when no profile) |
+| `RAG_PROFILE` | – | Profile name in the importer's `rag_profiles` registry; when set, table + embedding provider/model come from that row (env is the fallback) |
+| `RAG_DEFAULT_RETRIEVAL_LIMIT` | `5` | Top-k per retrieval query |
+| `RAG_SCORE_THRESHOLD` | `0.7` | Cosine similarity cutoff |
+| `RAG_TOKEN_BUDGET` | `3200` | Context budget (~4 chars/token) |
+| `RERANKER` | `none` | `none`, `cohere` or `voyage` (mirrors the eval harness) |
+| `RERANK_API_KEY` | – | Required when `RERANKER` != none |
+| `RERANK_MODEL` | `rerank-v3.5` (cohere) / `rerank-2.5` (voyage) | Rerank model |
+| `RERANK_TOP_N` | `10` | Candidates kept after reranking |
+| `RERANK_THRESHOLD` | `0.0` | Minimum relevance score |
+| `AGENT_API_KEY` | – | Static bearer key (only when Keycloak is off) |
+| `KEYCLOAK_JWKS_URL` / `KEYCLOAK_ISSUER` / `KEYCLOAK_AUDIENCE` | audience `fredy-agent` | JWT verification; enabling JWKS switches auth to Keycloak mode |
+| `ROLE_TOOL_CONFIG` | – | JSON `{role: [tool, ...]}` allowlist; malformed config crashes at boot |
+| `RATE_LIMIT_RPM` / `RATE_LIMIT_BURST` | `60` / `10` | Token bucket per client IP |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | – | OTLP/HTTP trace exporter (spans stay local when unset) |
+| `OTEL_GENAI_CAPTURE_CONTENT` | `false` | Opt-in prompt/response capture in spans |
+| `SERVICE_NAME` / `PROJECT_ENV` / `SERVICE_VERSION` | `fredy-agent` / `development` / `0.1.0` | Resource attributes for logs and traces |
 
 ## Development
 
 ```bash
-pnpm install
-pnpm build           # nest build (SWC)
-pnpm test            # Jest unit tests
-pnpm test:coverage   # Jest with coverage
-pnpm test:e2e        # supertest e2e (boots the full HTTP stack with stubs)
-pnpm lint
-pnpm format
+pnpm --filter @fredy/agent-core build   # build the base first
+pnpm --filter @fredy/agent build
+pnpm --filter @fredy/agent test         # vitest with v8 coverage (lcov)
+pnpm --filter @fredy/agent lint
 ```
 
-Tests are co-located with the source as `*.spec.ts`. The e2e suite under `src/e2e/` overrides `LLM_CLIENTS` and replaces the registered `vector_search` tool to keep the run self-contained.
+## Dropped features (vs. the previous NestJS service)
 
----
-
-## Known limitations
-
-- The `QueryRewriteService` uses simple punctuation-based expansion. An LLM-driven rewrite (a separate provider call before retrieval) is out of scope for the current architecture but plugs in cleanly under the same interface.
-- Mistral is intentionally not yet wired into the registry. Adding it means a new `shared/llm/mistral/` directory implementing `LlmClient` plus an entry in `LlmModule`'s factory.
-- The `fetch_url` tool truncates large pages to ~4000 characters and does not strip HTML. Use it for short content; for long documents, ingest them into the pgvector `chunks` table via `services/confluence-importer` instead.
+- **Server-side session memory** — Open-WebUI sends the full conversation history with every request, so per-session state added complexity without benefit. The `x-session-id` header is kept purely for trace/log correlation.
+- **MCP stdio entry point** — unused; the tool registry is now consumed directly by the agent graph. An MCP server can be reintroduced as a separate thin entry point on top of `ToolRegistry` if needed.
+- **Hand-written LLM provider clients** — replaced by LangChain chat models (`@langchain/anthropic`, `@langchain/openai`, `@langchain/google-genai`) resolved through `agent-core`'s `resolveChatModel`.
