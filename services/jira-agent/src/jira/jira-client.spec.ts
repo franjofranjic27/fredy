@@ -39,6 +39,17 @@ describe("createJiraClient", () => {
     expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("URL-encodes issue keys so they can never alter the request path", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(undefined, 204));
+    const { client } = makeClient(fetchImpl);
+    await client.assignIssue("IT-1/../secret?x=1", "u1");
+
+    const [url] = fetchImpl.mock.calls[0];
+    expect(url).toBe(
+      `https://acme.atlassian.net/rest/api/3/issue/${encodeURIComponent("IT-1/../secret?x=1")}/assignee`,
+    );
+  });
+
   it("normalises issue fields including the ADF description", async () => {
     const description = {
       type: "doc",

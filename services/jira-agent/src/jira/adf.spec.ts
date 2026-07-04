@@ -52,4 +52,20 @@ describe("markdownToAdf", () => {
     expect(doc.content).toHaveLength(1);
     expect(doc.content[0].type).toBe("paragraph");
   });
+
+  it("never emits empty text nodes (Jira rejects them with 400)", () => {
+    const collectTexts = (nodes: readonly unknown[] | undefined): string[] => {
+      if (!nodes) return [];
+      return (nodes as Array<{ type?: string; text?: string; content?: unknown[] }>).flatMap(
+        (node) => [
+          ...(node.type === "text" ? [node.text ?? ""] : []),
+          ...collectTexts(node.content),
+        ],
+      );
+    };
+    for (const input of ["", "```\n```", "\n\n", "```\n```\n\nText after."]) {
+      const texts = collectTexts(markdownToAdf(input).content);
+      expect(texts).not.toContain("");
+    }
+  });
 });

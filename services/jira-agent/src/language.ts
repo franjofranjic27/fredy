@@ -8,3 +8,12 @@ const GERMAN_MARKERS =
 export function isProbablyGerman(text: string): boolean {
   return /[äöüßÄÖÜ]/.test(text) || GERMAN_MARKERS.test(text);
 }
+
+/**
+ * The classifier's language field is LLM output derived from untrusted ticket
+ * text and gets interpolated into compose system prompts — only a plain
+ * BCP-47-ish tag may ever pass through.
+ */
+export function isSafeLanguageTag(value: string): boolean {
+  return /^[a-z]{2}(-[A-Za-z]{2})?$/.test(value);
+}

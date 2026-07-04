@@ -28,7 +28,8 @@ function inlineNodes(text: string): MutableAdfNode[] {
     lastIndex = index + match[0].length;
   }
   if (lastIndex < text.length) nodes.push({ type: "text", text: text.slice(lastIndex) });
-  return nodes.length > 0 ? nodes : [{ type: "text", text: "" }];
+  // ADF rejects empty text nodes; an empty paragraph content array is valid.
+  return nodes.filter((node) => node.text !== "");
 }
 
 function paragraph(text: string): MutableAdfNode {
@@ -46,10 +47,11 @@ function bulletList(lines: string[]): MutableAdfNode {
 }
 
 function codeBlock(lines: string[]): MutableAdfNode {
-  return {
-    type: "codeBlock",
-    content: [{ type: "text", text: lines.join("\n") }],
-  };
+  const text = lines.join("\n");
+  // Empty fences must not produce an empty text node (Jira rejects those).
+  return text === ""
+    ? { type: "codeBlock" }
+    : { type: "codeBlock", content: [{ type: "text", text }] };
 }
 
 function convert(markdown: string): MutableAdfNode[] {
@@ -94,7 +96,7 @@ function convert(markdown: string): MutableAdfNode[] {
     }
     blocks.push(paragraph(paragraphLines.join(" ")));
   }
-  return blocks.length > 0 ? blocks : [paragraph("")];
+  return blocks.length > 0 ? blocks : [{ type: "paragraph", content: [] }];
 }
 
 /**
@@ -117,9 +119,7 @@ export function markdownToAdf(markdown: string): AdfDocument {
     return {
       type: "doc",
       version: 1,
-      content: (content.length > 0
-        ? content
-        : [{ type: "paragraph", content: [{ type: "text", text: markdown }] }]) as AdfNode[],
+      content: (content.length > 0 ? content : [{ type: "paragraph", content: [] }]) as AdfNode[],
     };
   }
 }

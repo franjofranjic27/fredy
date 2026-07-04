@@ -10,6 +10,7 @@ import {
 import type { TriageGraphDeps } from "../deps.js";
 import type { TicketState } from "../state.js";
 import { buildClassifyInput, CLASSIFY_SYSTEM_PROMPT } from "../prompts/classify.js";
+import { isSafeLanguageTag } from "../../language.js";
 
 /**
  * The LLM proposes, code disposes: the structured decision is post-processed
@@ -43,7 +44,10 @@ export function makeClassifyNode(deps: TriageGraphDeps) {
       [new SystemMessage(CLASSIFY_SYSTEM_PROMPT), new HumanMessage(input)],
       config,
     );
-    const classification = applyOverrides(parsed, state);
+    // language flows into compose system prompts; a free-form value from the
+    // LLM would be a second-order injection channel, so gate it hard.
+    const language = isSafeLanguageTag(parsed.language) ? parsed.language : state.language;
+    const classification = applyOverrides({ ...parsed, language }, state);
 
     emitLogEvent(deps.logger, {
       type: "classification",
@@ -60,7 +64,7 @@ export function makeClassifyNode(deps: TriageGraphDeps) {
 
     return {
       classification,
-      language: classification.language || state.language,
+      language: classification.language,
     };
   };
 }

@@ -14,6 +14,9 @@ export interface JiraPollerDeps {
 
 const SEARCH_PAGE_SIZE = 50;
 const RECLAIM_STALE_MINUTES = 30;
+/** Reclaim must also run periodically: a crash after start() would otherwise
+ * leave fredy-in-progress tickets wedged until the next process restart. */
+const RECLAIM_EVERY_TICKS = 30;
 
 /**
  * JQL reconcile loop: the fallback trigger that also catches webhook gaps.
@@ -25,6 +28,7 @@ export class JiraPoller {
   private stopped = false;
   private lastRunAt: string | null = null;
   private lastError: string | null = null;
+  private ticksSinceReclaim = 0;
 
   constructor(private readonly deps: JiraPollerDeps) {}
 
@@ -71,6 +75,11 @@ export class JiraPoller {
 
   private async tick(): Promise<void> {
     try {
+      this.ticksSinceReclaim += 1;
+      if (this.ticksSinceReclaim >= RECLAIM_EVERY_TICKS) {
+        this.ticksSinceReclaim = 0;
+        await this.reclaimStale();
+      }
       const issues = await this.deps.client.searchIssues(this.deps.jql, SEARCH_PAGE_SIZE);
       for (const issue of issues) {
         this.deps.queue.enqueue({ issueKey: issue.key, trigger: "assigned" });

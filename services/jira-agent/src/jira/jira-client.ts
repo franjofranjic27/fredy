@@ -155,22 +155,22 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
     return text ? JSON.parse(text) : undefined;
   }
 
+  // Keys come from authenticated sources, but never let one alter the path.
+  const issuePath = (key: string): string => `/rest/api/3/issue/${encodeURIComponent(key)}`;
+
   function updateLabels(key: string, operation: "add" | "remove", label: string): Promise<unknown> {
-    return request("PUT", `/rest/api/3/issue/${key}`, {
+    return request("PUT", issuePath(key), {
       update: { labels: [{ [operation]: label }] },
     });
   }
 
   return {
     async getIssue(key) {
-      const raw = (await request(
-        "GET",
-        `/rest/api/3/issue/${key}?fields=${ISSUE_FIELDS}`,
-      )) as RawIssue;
+      const raw = (await request("GET", `${issuePath(key)}?fields=${ISSUE_FIELDS}`)) as RawIssue;
       return parseIssue(raw);
     },
     async getComments(key) {
-      const raw = (await request("GET", `/rest/api/3/issue/${key}/comment`)) as {
+      const raw = (await request("GET", `${issuePath(key)}/comment`)) as {
         comments?: RawComment[];
       };
       return (raw.comments ?? []).map(parseComment);
@@ -184,7 +184,7 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
       return (raw.issues ?? []).map(parseIssue);
     },
     async getTransitions(key) {
-      const raw = (await request("GET", `/rest/api/3/issue/${key}/transitions`)) as {
+      const raw = (await request("GET", `${issuePath(key)}/transitions`)) as {
         transitions?: Array<{ id?: string; name?: string }>;
       };
       return (raw.transitions ?? []).map((transition) => ({
@@ -193,13 +193,13 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
       }));
     },
     async addComment(key, body) {
-      await request("POST", `/rest/api/3/issue/${key}/comment`, { body });
+      await request("POST", `${issuePath(key)}/comment`, { body });
     },
     async assignIssue(key, accountId) {
-      await request("PUT", `/rest/api/3/issue/${key}/assignee`, { accountId });
+      await request("PUT", `${issuePath(key)}/assignee`, { accountId });
     },
     async transitionIssue(key, transitionId) {
-      await request("POST", `/rest/api/3/issue/${key}/transitions`, {
+      await request("POST", `${issuePath(key)}/transitions`, {
         transition: { id: transitionId },
       });
     },

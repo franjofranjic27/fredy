@@ -17,13 +17,15 @@ function handlerActions(state: TicketState): JiraAction[] {
   return actions;
 }
 
-function cacheWriteFor(state: TicketState): CacheEntry | undefined {
+function cacheWriteFor(state: TicketState, projectKey: string): CacheEntry | undefined {
   if (state.outcome !== "answered") return undefined;
   if ((state.classification?.confidence ?? 0) < CACHE_WRITE_MIN_CONFIDENCE) return undefined;
   if (!state.cacheQuestion || !state.cacheQueryEmbedding) return undefined;
   return {
     ticketKey: state.issueKey,
-    projectKey: state.issueKey.split("-")[0] ?? "",
+    // Must be the same value cache_lookup filters on — deriving it from the
+    // issue-key prefix would silently split reads and writes.
+    projectKey,
     questionText: state.cacheQuestion,
     resolutionText: state.draftComment,
     embedding: state.cacheQueryEmbedding,
@@ -38,7 +40,7 @@ function cacheWriteFor(state: TicketState): CacheEntry | undefined {
  * outcomes become future evidence — never clarifications, escalations,
  * handler output or answers that were themselves served from the cache.
  */
-export function makePlanActionsNode(_deps: TriageGraphDeps) {
+export function makePlanActionsNode(deps: TriageGraphDeps) {
   return (state: TicketState): Partial<TicketState> => {
     if (state.outcome === "handler") {
       return { actions: handlerActions(state) };
@@ -51,7 +53,7 @@ export function makePlanActionsNode(_deps: TriageGraphDeps) {
       const strongHit = state.cacheHits.find((hit) => hit.strong);
       return {
         actions,
-        cacheWrite: cacheWriteFor(state),
+        cacheWrite: cacheWriteFor(state, deps.projectKey),
         recordHitFor: state.outcome === "cached" ? strongHit?.ticketKey : undefined,
       };
     }

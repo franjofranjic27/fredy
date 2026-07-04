@@ -98,6 +98,24 @@ describe("JiraPoller", () => {
     poller.stop();
   });
 
+  it("re-runs the reclaim pass periodically, not only at startup", async () => {
+    const client = new FakeJiraClient();
+    client.searchResults = [];
+    const { poller } = makePoller(client, 1000);
+    await poller.start();
+
+    const reclaimCalls = () =>
+      client
+        .callsOf("searchIssues")
+        .filter((call) => String(call.args[0]).includes(LABEL_IN_PROGRESS)).length;
+    expect(reclaimCalls()).toBe(1);
+
+    // A wedged fredy-in-progress ticket must self-heal without a restart.
+    await vi.advanceTimersByTimeAsync(30 * 1000);
+    expect(reclaimCalls()).toBe(2);
+    poller.stop();
+  });
+
   it("stop() prevents any further ticks", async () => {
     const client = new FakeJiraClient();
     const { poller } = makePoller(client, 1000);
