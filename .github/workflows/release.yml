@@ -93,7 +93,7 @@ jobs:
               changed=$(git diff --name-only "$prev" "$version")
               echo "$changed"
               shared=no
-              echo "$changed" | grep -qE '^packages/common/|^pnpm-lock\.yaml$|^pnpm-workspace\.yaml$|^package\.json$' && shared=yes || true
+              echo "$changed" | grep -qE '^packages/agent-core/|^pnpm-lock\.yaml$|^pnpm-workspace\.yaml$|^package\.json$' && shared=yes || true
               echo "$changed" | grep -qE '^services/agent/' && agent=true || true
               echo "$changed" | grep -qE '^services/confluence-importer/' && importer=true || true
               # Shared pnpm workspace changes only affect the TS agent; the

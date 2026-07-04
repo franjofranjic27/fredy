@@ -50,11 +50,50 @@ Entscheidungen:
 - [x] lefthook-Hooks auf uv umgestellt, pnpm-lock bereinigt, release.yml-Filter korrigiert, renovate pep621
 - [x] Code-Review (code-reviewer) + Security-Check (security-advisor) — alle Findings behoben
 
-## Phase 4 (nächste Session): LangGraph-Agent
+## Phase 4: LangGraph-Agent (TypeScript, User-Entscheidung 2026-07-03)
 
-- [ ] Neuer Python-Agent mit LangGraph, FastAPI, OpenAI-kompatibler Endpoint
-- [ ] Retrieval-Tool mit Profil + Reranking + Thresholds (Erkenntnisse aus Eval)
-- [ ] Ablösung des NestJS-Agents nach Feature-Parität
+Entscheidungen: Agent bleibt TypeScript; schlanker Neubau **ohne NestJS** (Fastify);
+LangChain-ChatModels ersetzen die eigene Provider-Registry; MCP-Entrypoint entfällt
+vorerst; Session-Memory entfällt (Open-WebUI schickt Historie mit); Reranking mit
+Threshold kommt in den Retrieval-Node (konsistent zur Eval-Konfiguration).
+
+- [x] Porting-Dossier des NestJS-Agents (Contract, Auth, RBAC, Prompts, ENV) — inkl. Altlasten-Liste
+      (packages/common tot, usage nie zurückgegeben, fetch_url ohne SSRF-Schutz, Sampling-Params ignoriert)
+- [x] `packages/agent-core`: gemeinsame Base — pino-Logging, OTEL-Setup + GenAI-Semconv,
+      LangChain-OTEL-Callback, ChatModel-Factory, Tool-Registry + RBAC-Filter, Agent-Registry,
+      zod-Config (59 Tests, 96 % Coverage); `packages/common` gelöscht
+- [x] `services/agent` Neubau: Fastify, OpenAI-kompatibler Endpoint (SSE via reply.hijack),
+      Keycloak-JWT + API-Key-Auth, Rate-Limit mit Eviction, RBAC (172 Tests, 95 % Coverage)
+- [x] RAG-Agent als LangGraph StateGraph: retrieve → (generate | refuse), Reranking
+      (Cohere/Voyage, Top-N + Threshold), RAG-Profil aus `rag_profiles` mit env-Fallback
+- [x] Tools portiert: vector_search, get_knowledge_base_stats, fetch_url (SSRF-gehärtet,
+      1-MiB-Cap, Redirect-Revalidierung)
+- [x] Dockerfile (agent-core statt common), docker-compose, README; Smoke-Test bestanden
+- [x] CI/Sonar-Umbau (agent-core statt common, vitest-lcov); Typecheck-Fehler in
+      langchain-callback.spec.ts gefixt (ChatGeneration-Fixtures)
+- [x] Reviews durch: code-reviewer (kein Critical, 1 Major pg-Pool) + security-advisor
+      (C1 x-role-Bypass, C2 offen ohne Auth, H1 XFF-Spoofing) — Fixes laufen
+- [x] Findings-Fixes verifiziert (agent-core 63 Tests, agent 202 Tests, ~95 % Coverage, alles grün)
+- [ ] Commits + PR
+
+### Security-Findings (alle behoben)
+- C1: bei aktivem Keycloak wird Rolle nur aus JWT abgeleitet, Header ignoriert (rbac.ts:27)
+- C2: Fail-Fast ohne Auth, AGENT_ALLOW_ANONYMOUS Opt-in, Port 8001 nicht mehr published (config.ts:174)
+- H1: TRUST_PROXY (default false), Rate-Limit-Keying auf request.ip
+- M1: KEYCLOAK_ISSUER erzwungen bei gesetztem JWKS_URL (config.ts:169)
+- L1/L2/L4: timingSafeEqual, pino-redact, jwtVerify algorithms RS256
+- fetch_url: Request-Timeout, Scheme-Revalidierung pro Redirect
+- Code: pg-Pool error-Listener, endOpenSpans-Cleanup bei Disconnect, Trace-Parenting im Stream,
+  rerank-Filter statt non-null-assertion, toter otel-Config-Block entfernt, rag-agent.spec ergänzt
+
+### Bewusst offen gelassen (Design-Entscheidung des Users)
+- M3(sec): Prompt-Injection-Fencing des Retrieval-Kontexts — separat zu entscheiden
+- Manuell (dotfiles gesperrt): services/agent/.env.example (neu: RAG_PROFILE, RERANKER, RERANK_*,
+  AGENT_ALLOW_ANONYMOUS, TRUST_PROXY, FETCH_URL_TIMEOUT_MS; weg: SESSION_TTL_MS)
+- Kontrakt-Abweichungen (dokumentiert): Zero-Hit-Retrieval → Refusal statt LLM-Antwort auf
+  "No relevant documents found."; Rerank ohne Treffer über Threshold → Refusal
+- Manuell: services/agent/.env.example aktualisieren (neu: RAG_PROFILE, RERANKER, RERANK_*;
+  weg: SESSION_TTL_MS) — dotfiles sind für Claude gesperrt
 
 ## Review (2026-07-03)
 
