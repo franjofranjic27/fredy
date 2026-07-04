@@ -10,13 +10,7 @@ export interface TicketEvent {
  */
 export type TransitionIntent = "resolve" | "waiting-for-reporter";
 
-export type TicketOutcomePath =
-  | "cached"
-  | "handler"
-  | "answered"
-  | "clarification"
-  | "escalated"
-  | "noop";
+export type TicketOutcomePath = "cached" | "handler" | "answered" | "clarification" | "escalated";
 
 export interface TicketOutcome {
   readonly issueKey: string;

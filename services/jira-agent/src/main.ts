@@ -4,14 +4,25 @@ import { initTracing } from "@fredy/agent-core";
 const tracing = initTracing("fredy-jira-agent");
 
 import pg from "pg";
-import { createLogger } from "@fredy/agent-core";
+import {
+  createEmbeddingClient,
+  createLogger,
+  PgVectorStore,
+  resolveChatModel,
+} from "@fredy/agent-core";
 import { loadConfig } from "./config.js";
 import { buildServer } from "./server.js";
 import { createJiraClient } from "./jira/jira-client.js";
 import { TicketQueue } from "./queue.js";
 import { JiraPoller } from "./poller.js";
 import { createTicketProcessor } from "./processor.js";
-import { createNoopTicketAgent } from "./agent/noop-agent.js";
+import { TicketCacheStore } from "./cache/ticket-cache.js";
+import { TicketHandlerRegistry } from "./handlers/handler.js";
+import { createAccessRequestHandler } from "./handlers/access-request-handler.js";
+import { AutoApproveGate } from "./actions/action-gate.js";
+import { createActionExecutor } from "./actions/executor.js";
+import { createTriageTicketAgent } from "./agent/ticket-processor.js";
+import { defaultInvokeStructured, type CreateModelOptions } from "./agent/llm.js";
 
 async function bootstrap(): Promise<void> {
   const config = loadConfig();
@@ -30,8 +41,57 @@ async function bootstrap(): Promise<void> {
       email: config.jira.email,
       apiToken: config.jira.apiToken,
     });
+
+    const cache = new TicketCacheStore(pool, config.database.ticketCacheTable, logger);
+    await cache.ensureSchema();
+    const chunks = new PgVectorStore(pool, config.database.chunksTable, logger);
+    const embeddings = createEmbeddingClient(
+      config.embedding.provider,
+      config.embedding[config.embedding.provider],
+      fetch,
+      config.embedding.timeoutMs,
+    );
+    const handlers = new TicketHandlerRegistry();
+    handlers.register(createAccessRequestHandler());
+    const createModel = (options?: CreateModelOptions) =>
+      resolveChatModel(config.llm.fallbackModel, {
+        fallbackModel: config.llm.fallbackModel,
+        anthropic: config.llm.anthropic,
+        openai: config.llm.openai,
+        gemini: config.llm.gemini,
+        temperature: options?.temperature,
+        maxTokens: options?.maxTokens,
+        logger,
+      });
+
+    const executor = createActionExecutor({
+      client: jiraClient,
+      gate: new AutoApproveGate(),
+      cache,
+      transitionNames: {
+        resolve: config.jira.transitions.resolve,
+        "waiting-for-reporter": config.jira.transitions.waitingForReporter,
+      },
+      logger,
+    });
+    const agent = createTriageTicketAgent({
+      graphDeps: {
+        client: jiraClient,
+        embeddings,
+        cache,
+        chunks,
+        handlers,
+        createModel,
+        invokeStructured: defaultInvokeStructured(createModel),
+        projectKey: config.jira.projectKey,
+        agentAccountId: config.jira.agentAccountId,
+        retrieval: config.retrieval,
+        logger,
+      },
+      executor,
+    });
+
     const queue = new TicketQueue(logger);
-    const agent = createNoopTicketAgent(logger);
     queue.start(
       createTicketProcessor({
         client: jiraClient,
