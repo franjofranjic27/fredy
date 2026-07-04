@@ -149,6 +149,48 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}"
       OTEL_GENAI_CAPTURE_CONTENT: "${OTEL_GENAI_CAPTURE_CONTENT:-false}"
 
+  jira-agent:
+    build:
+      context: .
+      dockerfile: services/jira-agent/Dockerfile
+    container_name: fredy-jira-agent
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+    # Not published to the host: locally the poller is the only trigger. Jira
+    # Cloud cannot reach localhost anyway — publish the port only when
+    # tunnelling (cloudflared/ngrok) to receive webhooks:
+    # ports: ["8002:8002"]
+    environment:
+      JIRA_BASE_URL: "${JIRA_BASE_URL:-}"
+      JIRA_EMAIL: "${JIRA_EMAIL:-}"
+      JIRA_API_TOKEN: "${JIRA_API_TOKEN:-}"
+      JIRA_PROJECT_KEY: "${JIRA_PROJECT_KEY:-}"
+      JIRA_AGENT_ACCOUNT_ID: "${JIRA_AGENT_ACCOUNT_ID:-}"
+      JIRA_POLL_JQL: "${JIRA_POLL_JQL:-}"
+      JIRA_POLL_INTERVAL_MS: "${JIRA_POLL_INTERVAL_MS:-60000}"
+      JIRA_WEBHOOK_SECRET: "${JIRA_WEBHOOK_SECRET:-}"
+      JIRA_TRANSITION_RESOLVE: "${JIRA_TRANSITION_RESOLVE:-Done}"
+      JIRA_TRANSITION_WAITING: "${JIRA_TRANSITION_WAITING:-Waiting for customer}"
+      TICKET_CACHE_TABLE: "${TICKET_CACHE_TABLE:-jira_ticket_cache}"
+      JIRA_AGENT_PORT: "8002"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      LLM_FALLBACK_MODEL: "${LLM_FALLBACK_MODEL:-claude-sonnet-4-5-20250929}"
+      EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-openai}"
+      EMBEDDING_API_KEY: "${EMBEDDING_API_KEY:-}"
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-text-embedding-3-small}"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-fredy}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-fredy}"
+      CHUNKS_TABLE: "${CHUNKS_TABLE:-chunks}"
+      RAG_DEFAULT_RETRIEVAL_LIMIT: "${RAG_DEFAULT_RETRIEVAL_LIMIT:-5}"
+      RAG_SCORE_THRESHOLD: "${RAG_SCORE_THRESHOLD:-0.7}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}"
+      OTEL_GENAI_CAPTURE_CONTENT: "${OTEL_GENAI_CAPTURE_CONTENT:-false}"
+
 volumes:
   pgdata:
   open-webui:
