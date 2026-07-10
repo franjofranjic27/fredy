@@ -116,3 +116,18 @@ chore(infra): add confluence-importer service to docker-compose stack
 ## Security Note
 
 Move API keys from docker-compose.yml to environment variables or a secrets manager before deploying.
+
+## Repo Standards, PR & Issue Templates
+
+Repo-wide conventions are defined in
+[franjofranjic27/.github](https://github.com/franjofranjic27/.github)
+(`REPO_STANDARDS.md`). This repo keeps its own PR/issue templates as a
+documented override (service-scope checkboxes). For specialized PRs use the
+central templates via `gh pr create --body-file`:
+
+- Dependency updates (TLCM/Renovate follow-ups): `PULL_REQUEST_TEMPLATE/dependency-update.md`
+- SonarQube/SonarCloud fixes: `PULL_REQUEST_TEMPLATE/sonar-fix.md`
+
+The `docs/` folder is published as a MkDocs Material site to
+https://franjofranjic27.github.io/fredy/ (`docs.yml` workflow); new docs pages
+must be added to the `nav` in `mkdocs.yml`.

@@ -22,9 +22,11 @@ Beispiel: feat(agent): add streaming tool executor
 
 ## Betroffene(r) Service / Scope
 
-- [ ] `confluence-importer`
 - [ ] `agent`
-- [ ] `mcp-*`
+- [ ] `jira-agent`
+- [ ] `confluence-importer`
+- [ ] `eval`
+- [ ] `agent-core`
 - [ ] `infra`
 - [ ] `config`
 - [ ] cross-cutting (kein spezifischer Scope)
