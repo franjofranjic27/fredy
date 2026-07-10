@@ -66,7 +66,7 @@ typecheck-confluence-importer:
 ### `pre-commit` — test suite
 
 `services/agent` tests run on every commit. `services/confluence-importer` tests are commented out
-until [Todo 4](../services/confluence-importer/todos/04-tests-vitest.md) is implemented.
+until the importer test suite (formerly tracked as Todo 4) is implemented.
 
 ```yaml
 test-agent:

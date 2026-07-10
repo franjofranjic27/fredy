@@ -1,0 +1,54 @@
+site_name: fredy
+site_description: AI agent platform — RAG pipeline, vector search and agentic help
+site_url: https://franjofranjic27.github.io/fredy/
+repo_url: https://github.com/franjofranjic27/fredy
+repo_name: franjofranjic27/fredy
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      toggle:
+        icon: material/brightness-7
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      toggle:
+        icon: material/brightness-4
+        name: Light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+exclude_docs: |
+  todo/
+  agent-architecture.marp.md
+  copilot-migration-prompt.md
+
+nav:
+  - Home: index.md
+  - Architecture:
+      - AIOps Agent: aiops-architecture.md
+      - Confluence Importer: confluence-importer-architecture.md
+      - Agent Flow: agent-flow-diagram.md
+      - Agent Sequence Diagram: agent-sequence-diagram.md
+  - Guides:
+      - RAG Evaluation: rag-eval-guide.md
+      - Pre-commit Hooks: precommit-hooks.md
+  - Plans:
+      - Agent Migration: agent-migration-plan.md
